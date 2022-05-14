@@ -170,7 +170,7 @@ evaluation = dict(
     save_best='success')
 # yapf:disable
 log_config = dict(
-    interval=50,
+    interval=10,
     hooks=[
         dict(type='TextLoggerHook'),
         # dict(type='TensorboardLoggerHook')
@@ -180,7 +180,7 @@ log_config = dict(
 total_epochs = 20
 dist_params = dict(backend='nccl')
 log_level = 'INFO'
-work_dir = './work_dirs/xxx'
+work_dir = './work_dirs/mstracker'
 load_from = None
 resume_from = None
 workflow = [('train', 1)]

@@ -15,6 +15,10 @@ from mmtrack.core.evaluation import bbox2region
 from ..builder import MODELS
 from .base import BaseSingleObjectTracker
 
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 
 @MODELS.register_module()
 class MSTracker(BaseSingleObjectTracker):
@@ -80,15 +84,20 @@ class MSTracker(BaseSingleObjectTracker):
             tuple(Tensor): Multi level feature map of exemplar images.
         """
         z_feat = self.backbone(z_img)
+        # for zi, z in enumerate(z_feat):
+        #     print("z: ", zi, z.shape)
         if self.with_neck:
             z_feat = self.neck(z_feat)
+            # for zi, z in enumerate(z_feat):
+            #     print("neck z: ", zi, z.shape)
 
-        z_feat_center = []
-        for i in range(len(z_feat)):
-            left = (z_feat[i].size(3) - self.test_cfg.center_size) // 2
-            right = left + self.test_cfg.center_size
-            z_feat_center.append(z_feat[i][:, :, left:right, left:right])
-        return tuple(z_feat_center)
+        # z_feat_center = []
+        # for i in range(len(z_feat)):
+        #     left = (z_feat[i].size(3) - self.test_cfg.center_size) // 2
+        #     right = left + self.test_cfg.center_size
+        #     print(left, right)
+        #     z_feat_center.append(z_feat[i][:, :, left:right, left:right])
+        return tuple(z_feat)
 
     def forward_search(self, x_img):
         """Extract the features of search images.
@@ -202,6 +211,11 @@ class MSTracker(BaseSingleObjectTracker):
         # z_crop = self.get_cropped_img(img, bbox[0:2],
         #                               self.test_cfg.exemplar_size, z_size,
         #                               avg_channel)
+        # sns.heatmap(img.sum(0).sum(0).cpu().numpy(), vmin=0, vmax=100)
+        # plt.savefig("/zhzhao/code/mmtracking_master_20220513/sys_log/zimg.png") 
+        # plt.close()
+
+        # print("zimg: ", img.shape)
         z_crop = img
         z_feat = self.forward_template(z_crop)
         return z_feat, avg_channel
@@ -233,18 +247,24 @@ class MSTracker(BaseSingleObjectTracker):
         # x_crop = self.get_cropped_img(img, bbox[0:2],
         #                               self.test_cfg.search_size, x_size,
         #                               avg_channel)
+        # print("ximg: ", img.shape)
         x_crop = img
+        # sns.heatmap(img.sum(0).sum(0).cpu().numpy(), vmin=0, vmax=100)
+        # plt.savefig("/zhzhao/code/mmtracking_master_20220513/sys_log/ximg.png") 
+        # plt.close()
 
         x_feat = self.forward_search(x_crop)
-        cls_score, bbox_pred = self.head(z_feat, x_feat)
+        # print("x_feat num: ", len(x_feat))
+        # print("z_feat num: ", len(z_feat))
+        cls_score_list, bbox_pred_list = self.head(z_feat, x_feat, bbox_list)
         scale_factor = 1 # self.test_cfg.exemplar_size / z_size
-        best_score_list, best_bbox_list = self.head.get_bbox(cls_score, bbox_pred, bbox_list,
+        best_score_list, best_bbox_list = self.head.get_bbox_list(cls_score_list, bbox_pred_list, bbox_list,
                                                    scale_factor)
 
         # clip boundary
         for bi, best_bbox in enumerate(best_bbox_list):
             best_bbox_list[bi] = self._bbox_clip(best_bbox, img.shape[2], img.shape[3])
-        return best_score_list, best_bbox_list
+        return x_feat, best_score_list, best_bbox_list
 
     def simple_test_vot(self, img, frame_id, gt_bboxes, img_metas=None):
         """Test using VOT test mode.
@@ -272,46 +292,50 @@ class MSTracker(BaseSingleObjectTracker):
             # initialization
             gt_bboxes = gt_bboxes[0][0]
             self.memo = Dict()
-            self.memo.bbox = quad2bbox(gt_bboxes)
+            self.memo.bbox = [quad2bbox(gt_bboxes)]
             self.memo.z_feat, self.memo.avg_channel = self.init(
-                img, self.memo.bbox)
+                img, [self.memo.bbox])
             # 1 denotes the initialization state
-            bbox_pred = img.new_tensor([1.])
-            best_score = -1.
+            bbox_pred_list = [img.new_tensor([1.])]
+            best_score_list = [-1.]
         elif self.init_frame_id > frame_id:
             # 0 denotes unknown state, namely the skipping frame after failure
-            bbox_pred = img.new_tensor([0.])
-            best_score = -1.
+            bbox_pred_list = [img.new_tensor([0.])]
+            best_score_list = [-1.]
         else:
             # normal tracking state
-            best_score, self.memo.bbox = self.track(img, self.memo.bbox,
+            x_feat, best_score_list, self.memo.bbox = self.track(img, self.memo.bbox,
                                                     self.memo.z_feat,
                                                     self.memo.avg_channel)
+            self.memo.z_feat = x_feat
+            bbox_pred_list = list()
             # convert bbox to region
-            track_bbox = bbox_cxcywh_to_x1y1wh(self.memo.bbox).cpu().numpy()
-            track_region = bbox2region(track_bbox)
-            gt_bbox = gt_bboxes[0][0]
-            if len(gt_bbox) == 4:
-                gt_bbox = bbox_xyxy_to_x1y1wh(gt_bbox)
-            gt_region = bbox2region(gt_bbox.cpu().numpy())
+            for b in self.memo.bbox:
+                track_bbox = bbox_cxcywh_to_x1y1wh(b).cpu().numpy()
+                track_region = bbox2region(track_bbox)
+                gt_bbox = gt_bboxes[0][0]
+                if len(gt_bbox) == 4:
+                    gt_bbox = bbox_xyxy_to_x1y1wh(gt_bbox)
+                gt_region = bbox2region(gt_bbox.cpu().numpy())
 
-            if img_metas is not None and 'img_shape' in img_metas[0]:
-                image_shape = img_metas[0]['img_shape']
-                image_wh = (image_shape[1], image_shape[0])
-            else:
-                image_wh = None
-                Warning('image shape are need when calculating bbox overlap')
-            overlap = calculate_region_overlap(
-                track_region, gt_region, bounds=image_wh)
-            if overlap <= 0:
-                # tracking failure
-                self.init_frame_id = frame_id + 5
-                # 2 denotes the failure state
-                bbox_pred = img.new_tensor([2.])
-            else:
-                bbox_pred = bbox_cxcywh_to_xyxy(self.memo.bbox)
+                if img_metas is not None and 'img_shape' in img_metas[0]:
+                    image_shape = img_metas[0]['img_shape']
+                    image_wh = (image_shape[1], image_shape[0])
+                else:
+                    image_wh = None
+                    Warning('image shape are need when calculating bbox overlap')
+                overlap = calculate_region_overlap(
+                    track_region, gt_region, bounds=image_wh)
+                if overlap <= 0:
+                    # tracking failure
+                    self.init_frame_id = frame_id + 5
+                    # 2 denotes the failure state
+                    bbox_pred = img.new_tensor([2.])
+                else:
+                    bbox_pred = bbox_cxcywh_to_xyxy(b)
+                bbox_pred_list.append(bbox_pred)
 
-        return bbox_pred, best_score
+        return bbox_pred_list, best_score_list
 
     def simple_test_ope(self, img, frame_id, gt_bboxes):
         """Test using OPE test mode.
@@ -367,19 +391,20 @@ class MSTracker(BaseSingleObjectTracker):
         test_mode = self.test_cfg.get('test_mode', 'OPE')
         assert test_mode in ['OPE', 'VOT']
         if test_mode == 'VOT':
-            bbox_pred, best_score = self.simple_test_vot(
+            bbox_pred_list, best_score_list = self.simple_test_vot(
                 img, frame_id, gt_bboxes, img_metas)
         else:
-            bbox_pred, best_score = self.simple_test_ope(
+            bbox_pred_list, best_score_list = self.simple_test_ope(
                 img, frame_id, gt_bboxes)
 
         results = dict()
-        if best_score == -1.:
-            results['track_bboxes'] = np.concatenate(
-                (bbox_pred.cpu().numpy(), np.array([best_score])))
-        else:
-            results['track_bboxes'] = np.concatenate(
-                (bbox_pred.cpu().numpy(), best_score.cpu().numpy()[None]))
+        for bi, best_score in enumerate(best_score_list):
+            if best_score == -1.:
+                results['track_bboxes'] = np.concatenate(
+                    (bbox_pred_list[bi].cpu().numpy(), np.array([best_score])))
+            else:
+                results['track_bboxes'] = np.concatenate(
+                    (bbox_pred_list[bi].cpu().numpy(), best_score.cpu().numpy()[None]))
         return results
 
     def forward_train(self, img, img_metas, gt_bboxes, search_img,
@@ -424,7 +449,7 @@ class MSTracker(BaseSingleObjectTracker):
 
         z_feat = self.forward_template(img)
         x_feat = self.forward_search(search_img)
-        cls_score, bbox_pred = self.head(z_feat, x_feat)
+        cls_score, bbox_pred = self.head(z_feat, x_feat, gt_bboxes)
 
         losses = dict()
         bbox_targets = self.head.get_targets(search_gt_bboxes,

@@ -1,6 +1,7 @@
 # Copyright (c) OpenMMLab. All rights reserved.
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from mmcv.cnn.bricks import ConvModule
 from mmcv.runner import BaseModule, auto_fp16, force_fp32
 from mmdet.core import build_assigner, build_bbox_coder, build_sampler
@@ -10,27 +11,14 @@ from mmdet.models import HEADS, build_loss
 
 from mmtrack.core.track import depthwise_correlation
 
+import torchvision
+import numpy as np
+import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 
 @HEADS.register_module()
-class CorrelationHead(BaseModule):
-    """Correlation head module.
-
-    This module is proposed in
-    "SiamRPN++: Evolution of Siamese Visual Tracking with Very Deep Networks.
-    `SiamRPN++ <https://arxiv.org/abs/1812.11703>`_.
-
-    Args:
-        in_channels (int): Input channels.
-        mid_channels (int): Middle channels.
-        out_channels (int): Output channels.
-        kernel_size (int): Kernel size of convs. Defaults to 3.
-        norm_cfg (dict): Configuration of normlization method after each conv.
-            Defaults to dict(type='BN').
-        act_cfg (dict): Configuration of activation method after each conv.
-            Defaults to dict(type='ReLU').
-        init_cfg (dict or list[dict], optional): Initialization config dict.
-            Defaults to None.
-    """
+class MCorrelationHead(BaseModule):
 
     def __init__(self,
                  in_channels,
@@ -41,7 +29,7 @@ class CorrelationHead(BaseModule):
                  act_cfg=dict(type='ReLU'),
                  init_cfg=None,
                  **kwargs):
-        super(CorrelationHead, self).__init__(init_cfg)
+        super(MCorrelationHead, self).__init__(init_cfg)
         self.kernel_convs = ConvModule(
             in_channels=in_channels,
             out_channels=mid_channels,
@@ -58,7 +46,7 @@ class CorrelationHead(BaseModule):
 
         self.head_convs = nn.Sequential(
             ConvModule(
-                in_channels=mid_channels,
+                in_channels=mid_channels*5,
                 out_channels=mid_channels,
                 kernel_size=1,
                 norm_cfg=norm_cfg,
@@ -68,12 +56,92 @@ class CorrelationHead(BaseModule):
                 out_channels=out_channels,
                 kernel_size=1,
                 act_cfg=None))
+        
+        self.RoI_align = torchvision.ops.RoIAlign(output_size=(7,7), spatial_scale=125/1024, sampling_ratio=-1)
+
+    def cyclic_shift(self, fmap, dim=2, shift=0):
+        index_array = torch.range(0, fmap.shape[dim]-1, 1).cuda().long()
+        if shift < 0:
+            shift += fmap.shape[dim]
+        index_array = torch.cat((index_array[shift:], index_array[:shift]))
+        # print(index_array)
+        shift_map = torch.index_select(fmap, dim, index_array)
+        return shift_map
+
+    # def bbox_scale_down(self, bound, bbox_list, scale):
+    #     bbox_list_scaledown = bbox_list * scale
+    #     if bbox_list_scaledown[0] < 0:
+    #         bbox_list_scaledown[0] = 0
+    #     if bbox_list_scaledown[1] < 0:
+    #         bbox_list_scaledown[1] = 0
+    #     if bbox_list_scaledown[0] > bound[0]:
+    #         bbox_list_scaledown[0] = bound[0]
+    #     if bbox_list_scaledown[1] > bound[1]:
+    #         bbox_list_scaledown[1] = bound[1]
+    #     bbox_list_scaledown = torch.round(bbox_list_scaledown)
+    #     return bbox_list_scaledown.int()
+
 
     def forward(self, kernel, search, bbox_list):
+        # print(bbox_list)
+        # bbox_list_scaledown = self.bbox_scale_down([kernel.shape[2], kernel.shape[3]], bbox_list, scale=125/1024)
+        # print(bbox_list_scaledown)
+
+        # print("kernel: ", kernel.shape)
+        # print("search: ", search.shape)
         kernel = self.kernel_convs(kernel)
         search = self.search_convs(search)
-        correlation_maps = depthwise_correlation(search, kernel)
-        out = self.head_convs(correlation_maps)
+        # print("kernel: ", kernel.shape)
+        # print("search: ", search.shape)
+        
+        # # plotting  
+        # kernel_vis = kernel.sum(0).sum(0).cpu().numpy()
+        # for y in range(bbox_list_scaledown[0], bbox_list_scaledown[0]+bbox_list_scaledown[2]):
+        #     for x in range(bbox_list_scaledown[1], bbox_list_scaledown[1]+bbox_list_scaledown[3]):
+        #         kernel_vis[x][y] = 0
+        # sns.heatmap(kernel_vis, vmin=0, vmax=150)
+        # plt.savefig("/zhzhao/code/mmtracking_master_20220513/sys_log/kernel.png") 
+        # plt.close()
+        search_region = 2
+        for shift_x in range(-1*search_region, search_region+1):
+            for shift_y in range(-1*search_region, search_region+1):
+                kernel_shift_x = self.cyclic_shift(kernel, dim=2, shift=shift_x)
+                kernel_shift = self.cyclic_shift(kernel_shift_x, dim=3, shift=shift_y)
+                # kernel_shift = torch.unsqueeze(kernel_shift, 0)
+                # kernel_shift = torch.unsqueeze(kernel_shift, 0)
+                if shift_y == -1*search_region and shift_y == -1*search_region:
+                    kernel_shift_chunk = kernel_shift
+                else:
+                    kernel_shift_chunk = torch.cat((kernel_shift_chunk, kernel_shift), 1)
+
+        # print("kernel_shift_chunk: ", kernel_shift_chunk.shape)
+        # print("bbox_list:", bbox_list)
+
+        bbox_list_xyxy = [torch.unsqueeze(b.clone(), 0).float() for b in bbox_list]
+        for bi, bbox in enumerate(bbox_list_xyxy):
+            bbox_list_xyxy[bi][0][0] = bbox[0][0] - bbox[0][2]/2
+            bbox_list_xyxy[bi][0][1] = bbox[0][1] - bbox[0][3]/2
+            bbox_list_xyxy[bi][0][2] = bbox[0][0] + bbox[0][2]/2
+            bbox_list_xyxy[bi][0][3] = bbox[0][1] + bbox[0][3]/2
+        # print(bbox_list_xyxy.size())
+        # bbox_list_xyxy = torch.tensor(bbox_list_xyxy)
+        output_roi = self.RoI_align(kernel_shift_chunk, bbox_list_xyxy)
+        # # plotting  
+        # sns.heatmap(kernel_shift.sum(0).sum(0).cpu().numpy(), vmin=0, vmax=150)
+        # plt.savefig("/zhzhao/code/mmtracking_master_20220513/sys_log/kernel_shift.png") 
+        # plt.close()
+
+        # sns.heatmap(search.sum(0).sum(0).cpu().numpy(), vmin=0, vmax=150)
+        # plt.savefig('/zhzhao/code/mmtracking_master_20220513/sys_log/search.png')
+        # plt.close()
+
+        # correlation_maps = depthwise_correlation(search, kernel)
+
+
+        # print("output_roi: ", output_roi.shape)
+        out = self.head_convs(output_roi)
+        out = torch.unsqueeze(out, 1)
+        # print("out: ", out.shape)
         return out
 
 
@@ -151,11 +219,11 @@ class MSTrackerHead(BaseModule):
         self.reg_heads = nn.ModuleList()
         for i in range(len(in_channels)):
             self.cls_heads.append(
-                CorrelationHead(in_channels[i], in_channels[i],
+                MCorrelationHead(in_channels[i], in_channels[i],
                                 2 * self.anchor_generator.num_base_anchors[0],
                                 kernel_size, norm_cfg))
             self.reg_heads.append(
-                CorrelationHead(in_channels[i], in_channels[i],
+                MCorrelationHead(in_channels[i], in_channels[i],
                                 4 * self.anchor_generator.num_base_anchors[0],
                                 kernel_size, norm_cfg))
 
@@ -163,6 +231,7 @@ class MSTrackerHead(BaseModule):
         if self.weighted_sum:
             self.cls_weight = nn.Parameter(torch.ones(len(in_channels)))
             self.reg_weight = nn.Parameter(torch.ones(len(in_channels)))
+
 
         self.loss_cls = build_loss(loss_cls)
         self.loss_bbox = build_loss(loss_bbox)
@@ -200,10 +269,16 @@ class MSTrackerHead(BaseModule):
         cls_score = 0
         bbox_pred = 0
         for i in range(len(z_feats)):
-            cls_score_single = self.cls_heads[i](z_feats[i], x_feats[i])
-            bbox_pred_single = self.reg_heads[i](z_feats[i], x_feats[i])
+            cls_score_single = self.cls_heads[i](z_feats[i], x_feats[i], bbox_list)
+            bbox_pred_single = self.reg_heads[i](z_feats[i], x_feats[i], bbox_list)
             cls_score += cls_weight[i] * cls_score_single
             bbox_pred += reg_weight[i] * bbox_pred_single
+
+        # print("cls_score: ", cls_score)
+        # print("bbox_pred: ", bbox_pred)
+        # print("cls_score: ", cls_score.size())
+        # print("bbox_pred: ", bbox_pred.size())
+
 
         return cls_score, bbox_pred
 
@@ -416,6 +491,16 @@ class MSTrackerHead(BaseModule):
         return losses
 
     @force_fp32(apply_to=('cls_score', 'bbox_pred'))
+    def get_bbox_list(self, cls_score_list, bbox_pred_list, bbox_list, scale_factor):
+        best_score_list = list()
+        final_bbox_list = list()
+        for i in range(len(cls_score_list)):
+            best_score, final_bbox = self.get_bbox(cls_score_list[i], bbox_pred_list[i], bbox_list[i], scale_factor)
+        best_score_list.append(best_score)
+        final_bbox_list.append(final_bbox)
+        return best_score_list, final_bbox_list
+
+    @force_fp32(apply_to=('cls_score', 'bbox_pred'))
     def get_bbox(self, cls_score, bbox_pred, prev_bbox, scale_factor):
         """Track `prev_bbox` to current frame based on the output of network.
 
@@ -432,6 +517,7 @@ class MSTrackerHead(BaseModule):
             bbox in current frame.
         """
         score_maps_size = [(cls_score.shape[2:])]
+        # print(cls_score.shape)
         if not hasattr(self, 'anchors'):
             self.anchors = self.anchor_generator.grid_priors(
                 score_maps_size, device=cls_score.device)[0]
