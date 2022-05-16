@@ -466,31 +466,38 @@ class MSTrackerHead(BaseModule):
             with [cx, cy, w, h] format, which denotes the best tracked
             bbox in current frame.
         """
-        score_maps_size = [(cls_score.shape[2:])]
-        # print(cls_score.shape)
-        if not hasattr(self, 'anchors'):
-            self.anchors = self.anchor_generator.grid_priors(
-                score_maps_size, device=cls_score.device)[0]
-            # Transform the coordinate origin from the top left corner to the
-            # center in the scaled feature map.
-            feat_h, feat_w = score_maps_size[0]
-            stride_w, stride_h = self.anchor_generator.strides[0]
-            self.anchors[:, 0:4:2] -= (feat_w // 2) * stride_w
-            self.anchors[:, 1:4:2] -= (feat_h // 2) * stride_h
+        # score_maps_size = [(cls_score.shape[2:])]
+        # # print(cls_score.shape)
+        # if not hasattr(self, 'anchors'):
+        #     self.anchors = self.anchor_generator.grid_priors(
+        #         score_maps_size, device=cls_score.device)[0]
+        #     # Transform the coordinate origin from the top left corner to the
+        #     # center in the scaled feature map.
+        #     feat_h, feat_w = score_maps_size[0]
+        #     stride_w, stride_h = self.anchor_generator.strides[0]
+        #     self.anchors[:, 0:4:2] -= (feat_w // 2) * stride_w
+        #     self.anchors[:, 1:4:2] -= (feat_h // 2) * stride_h
 
-        if not hasattr(self, 'windows'):
-            self.windows = self.anchor_generator.gen_2d_hanning_windows(
-                score_maps_size, cls_score.device)[0]
+        # if not hasattr(self, 'windows'):
+        #     self.windows = self.anchor_generator.gen_2d_hanning_windows(
+        #         score_maps_size, cls_score.device)[0]
 
-        H, W = score_maps_size[0]
-        cls_score = cls_score.view(2, -1, H, W)
-        cls_score = cls_score.permute(2, 3, 1, 0).contiguous().view(-1, 2)
+        # H, W = score_maps_size[0]
+        # cls_score = cls_score.view(2, -1, H, W)
+        # cls_score = cls_score.permute(2, 3, 1, 0).contiguous().view(-1, 2)
+        # print("cls_score", cls_score.shape, cls_score)
         cls_score = cls_score.softmax(dim=1)[:, 1]
+        # print("cls_score", cls_score.shape, cls_score)
 
-        bbox_pred = bbox_pred.view(4, -1, H, W)
-        bbox_pred = bbox_pred.permute(2, 3, 1, 0).contiguous().view(-1, 4)
-        bbox_pred = self.bbox_coder.decode(self.anchors, bbox_pred)
+        # bbox_pred = bbox_pred.view(4, -1, H, W)
+        prev_bbox = prev_bbox.view(-1, 4)
+        bbox_pred = bbox_pred.view(-1, 4)
+        # print("prev_bbox", prev_bbox.shape, prev_bbox)
+        # print("bbox_pred", bbox_pred.shape, bbox_pred)
+        bbox_pred = self.bbox_coder.decode(prev_bbox, bbox_pred)
+        # print("bbox_pred", bbox_pred.shape, bbox_pred)
         bbox_pred = bbox_xyxy_to_cxcywh(bbox_pred)
+        # print("bbox_pred", bbox_pred.shape, bbox_pred)
 
         def change_ratio(ratio):
             return torch.max(ratio, 1. / ratio)
@@ -499,6 +506,7 @@ class MSTrackerHead(BaseModule):
             pad = (w + h) * 0.5
             return torch.sqrt((w + pad) * (h + pad))
 
+        prev_bbox = prev_bbox.view(-1)
         # scale penalty
         scale_penalty = change_ratio(
             enlarge_size(bbox_pred[:, 2], bbox_pred[:, 3]) / enlarge_size(
@@ -514,11 +522,12 @@ class MSTrackerHead(BaseModule):
                             self.test_cfg.penalty_k)
         penalty_score = penalty * cls_score
 
-        # window penalty
-        penalty_score = penalty_score * (1 - self.test_cfg.window_influence) \
-            + self.windows * self.test_cfg.window_influence
+        # # window penalty
+        # penalty_score = penalty_score * (1 - self.test_cfg.window_influence) \
+        #     + self.windows * self.test_cfg.window_influence
 
-        best_idx = torch.argmax(penalty_score)
+        # best_idx = torch.argmax(penalty_score)
+        best_idx = 0
         best_score = cls_score[best_idx]
         best_bbox = bbox_pred[best_idx, :] / scale_factor
 
