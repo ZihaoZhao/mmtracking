@@ -345,11 +345,21 @@ class MSTrackerHead(BaseModule):
         w = int(gt_bbox[0][2] - gt_bbox[0][0])
 
         gt_bbox_neg = gt_bbox.clone()
+        shift = torch.randint(max(h,w)//2, max(h,w), size=(1,))[0]
         # print(torch.randint(max(h,w)//2, max(h,w), size=(1,)))
-        gt_bbox_neg[0][1] += torch.randint(max(h,w)//2, max(h,w), size=(1,))[0]
-        gt_bbox_neg[0][2] += torch.randint(max(h,w)//2, max(h,w), size=(1,))[0]
-        gt_bbox_neg[0][3] += torch.randint(max(h,w)//2, max(h,w), size=(1,))[0]
-        gt_bbox_neg[0][4] += torch.randint(max(h,w)//2, max(h,w), size=(1,))[0]
+        gt_bbox_neg[0][1] += shift
+        gt_bbox_neg[0][2] += shift
+        gt_bbox_neg[0][3] += shift
+        gt_bbox_neg[0][4] += shift
+
+        if gt_bbox_neg[0][1] > 1022:
+            gt_bbox_neg[0][1] = 1022
+        if gt_bbox_neg[0][2] > 1022:
+            gt_bbox_neg[0][2] = 1022
+        if gt_bbox_neg[0][3] > 1024:
+            gt_bbox_neg[0][3] = 1024
+        if gt_bbox_neg[0][4] > 1024:
+            gt_bbox_neg[0][4] = 1024
 
         bbox_targets = self.bbox_coder.encode(prv_gt_bbox, gt_bbox_neg[:, 1:])
         bbox_weights = torch.zeros_like(bbox_targets)
@@ -419,8 +429,15 @@ class MSTrackerHead(BaseModule):
         bbox_targets = bbox_targets.view(-1, 4)
         bbox_weights = bbox_weights.view(-1, 4)
         bbox_pred = bbox_pred.view(-1, 4)
-        losses['loss_rpn_bbox'] = self.loss_bbox(bbox_pred, bbox_targets, weight=bbox_weights)
 
+        losses['loss_rpn_bbox'] = self.loss_bbox(bbox_pred, bbox_targets, weight=bbox_weights)
+        if torch.isnan(losses['loss_rpn_bbox']).int().sum() >= 1 or \
+            torch.isinf(losses['loss_rpn_bbox']).int().sum() >= 1 :
+            print("bbox_targets", bbox_targets)
+            print("bbox_weights", bbox_weights)
+            print("bbox_pred", bbox_pred)
+            print("losses[loss_rpn_bbox]", losses['loss_rpn_bbox'])
+            exit()
         return losses
 
     @force_fp32(apply_to=('cls_score', 'bbox_pred'))
