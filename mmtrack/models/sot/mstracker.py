@@ -485,14 +485,14 @@ class MSTracker(BaseSingleObjectTracker):
         # head_losses = dict()
         # print("search_gt_bboxes_list",search_gt_bboxes_list)
         # print("bbox_pred_list",bbox_pred_list)
-        print("bbox_pred_list",bbox_pred_list[0].shape)
-        print("search_gt_bboxes_list",search_gt_bboxes_list[0][0].shape)
         for bi, cls_score in enumerate(cls_score_list):
             bbox_targets = self.head.get_targets(gt_bboxes,
                                                 search_gt_bboxes_list[bi],
-                                                cls_score.shape[2:],
                                                 is_positive_pairs)
-            head_losses = self.head.loss(cls_score, bbox_pred_list[bi], *bbox_targets)
-            losses.update(head_losses)
+            if bi == 0:
+                head_losses = self.head.loss(cls_score, bbox_pred_list[bi], *bbox_targets)
+            else:
+                head_losses += self.head.loss(cls_score, bbox_pred_list[bi], *bbox_targets)
+        losses.update(head_losses)
 
         return losses

@@ -165,7 +165,7 @@ class MSTrackerAnchorGenerator(AnchorGenerator):
 
         return base_anchors
 
-    def grid_priors(self, prv_gt_boxes, featmap_sizes, dtype=torch.float32, device='cuda'):
+    def ms_grid_priors(self, prv_gt_boxes, featmap_sizes, dtype=torch.float32, device='cuda'):
         """Generate grid anchors in multiple feature levels.
         Args:
             featmap_sizes (list[tuple]): List of feature map sizes in
