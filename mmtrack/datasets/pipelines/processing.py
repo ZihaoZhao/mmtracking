@@ -377,6 +377,7 @@ class PairSampling(object):
                 results.extend(
                     self.prepare_data(
                         video_info_another, [0], is_positive_pairs=False))
+        # print("Pair Sampling", results)
         return results
 
 

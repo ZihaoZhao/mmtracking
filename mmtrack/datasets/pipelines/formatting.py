@@ -249,11 +249,14 @@ class SeqDefaultFormatBundle(object):
             _results = self.default_format_bundle(_results)
             outs.append(_results)
 
+
+        # print("outs:", outs)
         data = {}
         data.update(outs[0])
         for k, v in outs[1].items():
             data[f'{self.ref_prefix}_{k}'] = v
 
+        # print("data:", data)
         return data
 
     def default_format_bundle(self, results):

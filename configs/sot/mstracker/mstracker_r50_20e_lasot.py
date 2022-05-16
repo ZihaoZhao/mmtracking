@@ -3,8 +3,8 @@ deterministic = True
 seed = 1
 find_unused_parameters = True
 crop_size = 511
-exemplar_size = 127
-search_size = 255
+exemplar_size = 1024
+search_size = 1024
 
 # model settings
 model = dict(
@@ -32,10 +32,10 @@ model = dict(
     head=dict(
         type='MSTrackerHead',
         anchor_generator=dict(
-            type='SiameseRPNAnchorGenerator',
-            strides=[8],
+            type='MSTrackerAnchorGenerator',
+            strides=[41],
             ratios=[0.33, 0.5, 1, 2, 3],
-            scales=[8]),
+            scales=[4, 8, 16, 32, 41, 64, 128]),
         in_channels=[256, 256, 256],
         weighted_sum=True,
         bbox_coder=dict(
@@ -78,7 +78,7 @@ train_pipeline = [
     dict(type='LoadMultiImagesFromFile', to_float32=True),
     dict(type='SeqLoadAnnotations', with_bbox=True, with_label=False),
     dict(
-        type='SeqCropLikeSiamFC',
+        type='SeqCropLikeMSTracker',
         context_amount=0.5,
         exemplar_size=exemplar_size,
         crop_size=crop_size),
@@ -107,7 +107,7 @@ test_pipeline = [
 ]
 # dataset settings
 data = dict(
-    samples_per_gpu=28,
+    samples_per_gpu=6,
     workers_per_gpu=4,
     persistent_workers=True,
     samples_per_epoch=600000,
@@ -170,7 +170,7 @@ evaluation = dict(
     save_best='success')
 # yapf:disable
 log_config = dict(
-    interval=10,
+    interval=50,
     hooks=[
         dict(type='TextLoggerHook'),
         # dict(type='TensorboardLoggerHook')

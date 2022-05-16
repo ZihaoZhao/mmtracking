@@ -138,6 +138,135 @@ class SeqCropLikeSiamFC(object):
 
 
 @PIPELINES.register_module()
+class SeqCropLikeMSTracker(object):
+    """Crop images as SiamFC did.
+
+    The way of cropping an image is proposed in
+    "Fully-Convolutional Siamese Networks for Object Tracking."
+    `SiamFC <https://arxiv.org/abs/1606.09549>`_.
+
+    Args:
+        context_amount (float): The context amount around a bounding box.
+            Defaults to 0.5.
+        exemplar_size (int): Exemplar size. Defaults to 127.
+        crop_size (int): Crop size. Defaults to 511.
+    """
+
+    def __init__(self, context_amount=0.5, exemplar_size=127, crop_size=511):
+        self.context_amount = context_amount
+        self.exemplar_size = exemplar_size
+        self.crop_size = crop_size
+
+    def crop_like_SiamFC(self,
+                         image,
+                         bbox,
+                         context_amount=0.5,
+                         exemplar_size=127,
+                         crop_size=511):
+        """Crop an image as SiamFC did.
+
+        Args:
+            image (ndarray): of shape (H, W, 3).
+            bbox (ndarray): of shape (4, ) in [x1, y1, x2, y2] format.
+            context_amount (float): The context amount around a bounding box.
+                Defaults to 0.5.
+            exemplar_size (int): Exemplar size. Defaults to 127.
+            crop_size (int): Crop size. Defaults to 511.
+
+        Returns:
+            ndarray: The cropped image of shape (crop_size, crop_size, 3).
+        """
+        padding = np.mean(image, axis=(0, 1)).tolist()
+
+        bbox = np.array([
+            0.5 * (bbox[2] + bbox[0]), 0.5 * (bbox[3] + bbox[1]),
+            bbox[2] - bbox[0], bbox[3] - bbox[1]
+        ])
+        z_width = bbox[2] + context_amount * (bbox[2] + bbox[3])
+        z_height = bbox[3] + context_amount * (bbox[2] + bbox[3])
+        z_size = np.sqrt(z_width * z_height)
+
+        z_scale = exemplar_size / z_size
+        d_search = (crop_size - exemplar_size) / 2.
+        pad = d_search / z_scale
+        x_size = z_size + 2 * pad
+        x_bbox = np.array([
+            bbox[0] - 0.5 * x_size, bbox[1] - 0.5 * x_size,
+            bbox[0] + 0.5 * x_size, bbox[1] + 0.5 * x_size
+        ])
+
+        x_crop_img = crop_image(image, x_bbox, crop_size, padding)
+        return x_crop_img
+
+    def generate_box(self, image, gt_bbox, context_amount, exemplar_size):
+        """Generate box based on cropped image.
+
+        Args:
+            image (ndarray): The cropped image of shape
+                (self.crop_size, self.crop_size, 3).
+            gt_bbox (ndarray): of shape (4, ) in [x1, y1, x2, y2] format.
+            context_amount (float): The context amount around a bounding box.
+            exemplar_size (int): Exemplar size. Defaults to 127.
+
+        Returns:
+            ndarray: Generated box of shape (4, ) in [x1, y1, x2, y2] format.
+        """
+        img_h, img_w = image.shape[:2]
+        w, h = gt_bbox[2] - gt_bbox[0], gt_bbox[3] - gt_bbox[1]
+
+        z_width = w + context_amount * (w + h)
+        z_height = h + context_amount * (w + h)
+        z_scale = np.sqrt(z_width * z_height)
+        z_scale_factor = exemplar_size / z_scale
+        w = w * z_scale_factor
+        h = h * z_scale_factor
+        cx, cy = img_w // 2, img_h // 2
+        bbox = np.array(
+            [cx - 0.5 * w, cy - 0.5 * h, cx + 0.5 * w, cy + 0.5 * h],
+            dtype=np.float32)
+
+        return bbox
+
+    def __call__(self, results):
+        """Call function.
+
+        For each dict in results, crop image like SiamFC did.
+
+        Args:
+            results (list[dict]): List of dict that from
+                :obj:`mmtrack.CocoVideoDataset`.
+
+        Returns:
+            list[dict]: List of dict that contains cropped image and
+            corresponding ground truth box.
+        """
+        outs = []
+        for _results in results:
+            image = _results['img']
+            gt_bbox = _results['gt_bboxes'][0]
+            # print(image.shape)
+            # print(gt_bbox)
+            # print(image.shape)
+            # ccc
+            # crop_img = self.crop_like_SiamFC(image, gt_bbox,
+            #                                  self.context_amount,
+            #                                  self.exemplar_size,
+            #                                  self.crop_size)
+            # generated_bbox = self.generate_box(crop_img, gt_bbox,
+            #                                    self.context_amount,
+            #                                    self.exemplar_size)
+            # generated_bbox = generated_bbox[None]
+
+            _results['img'] = image
+            if 'img_shape' in _results:
+                _results['img_shape'] = image.shape
+            _results['gt_bboxes'] = gt_bbox
+
+            outs.append(_results)
+        return outs
+
+
+@PIPELINES.register_module()
 class SeqCropLikeStark(object):
     """Crop images as Stark did.
 
@@ -467,6 +596,16 @@ class SeqShiftScaleAug(object):
             truth box in [x1, y1, x2, y2] format.
         """
         img_h, img_w = image.shape[:2]
+        image = cv2.resize(image, (1024, 1024))
+        bbox *= np.array([1024/img_w, 1024/img_h, 1024/img_w, 1024/img_h],
+                         dtype=np.float32)
+        # print(bbox)
+        padding_num = 100
+        image = cv2.copyMakeBorder(image, padding_num, padding_num, padding_num, padding_num, cv2.BORDER_REPLICATE)
+        bbox += np.array(
+            [padding_num, padding_num, padding_num, padding_num])
+
+        img_h, img_w = image.shape[:2]
 
         scale_x = (2 * np.random.random() - 1) * scale + 1
         scale_y = (2 * np.random.random() - 1) * scale + 1
@@ -479,12 +618,29 @@ class SeqShiftScaleAug(object):
             img_h // 2 + 0.5 * scale_y * target_size
         ])
 
+        # print("crop_region:", crop_region)
+        # print("shift:", shift)
         shift_x = (2 * np.random.random() - 1) * shift
         shift_y = (2 * np.random.random() - 1) * shift
+        # print("shift_x:", shift_x)
+        # print("shift_y:", shift_y)
+        # if shift ==64 and shift_x >0 and shift_y>0:
+        #     print(crop_region[0])
+        #     print(img_w - crop_region[2])
+        #     print(shift_x)
+        #     print(min(img_w - crop_region[2], shift_x))
+        #     print(max(-crop_region[0], min(img_w - crop_region[2], shift_x)))
+        #     exit()
         shift_x = max(-crop_region[0], min(img_w - crop_region[2], shift_x))
         shift_y = max(-crop_region[1], min(img_h - crop_region[3], shift_y))
         shift = np.array([shift_x, shift_y, shift_x, shift_y])
         crop_region += shift
+
+        # print("shift:", shift)
+        # print("image:", image.shape)
+        # print("crop_region:", crop_region)
+        # print("target_size:", target_size)
+        # print("scale:", scale_x, scale_y)
 
         crop_img = crop_image(image, crop_region, target_size)
         bbox -= np.array(
@@ -510,7 +666,7 @@ class SeqShiftScaleAug(object):
         outs = []
         for i, _results in enumerate(results):
             image = _results['img']
-            gt_bbox = _results['gt_bboxes'][0]
+            gt_bbox = _results['gt_bboxes']
 
             crop_img, crop_bbox = self._shift_scale_aug(
                 image, gt_bbox, self.target_size[i], self.shift[i],

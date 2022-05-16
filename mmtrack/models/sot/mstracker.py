@@ -253,6 +253,8 @@ class MSTracker(BaseSingleObjectTracker):
         # plt.savefig("/zhzhao/code/mmtracking_master_20220513/sys_log/ximg.png") 
         # plt.close()
 
+        # print(bbox_list)
+        # aaa
         x_feat = self.forward_search(x_crop)
         # print("x_feat num: ", len(x_feat))
         # print("z_feat num: ", len(z_feat))
@@ -286,6 +288,8 @@ class MSTracker(BaseSingleObjectTracker):
             best_score (Tensor): the tracking bbox confidence in range [0,1],
                 and the score of initial frame is -1.
         """
+
+        # print("gt:", gt_bboxes)
         if frame_id == 0:
             self.init_frame_id = 0
         if self.init_frame_id == frame_id:
@@ -384,6 +388,7 @@ class MSTracker(BaseSingleObjectTracker):
         Returns:
             dict[str : ndarray]: The tracking results.
         """
+        # print("gt:", gt_bboxes)
         frame_id = img_metas[0].get('frame_id', -1)
         assert frame_id >= 0
         assert len(img) == 1, 'only support batch_size=1 when testing'
@@ -407,7 +412,7 @@ class MSTracker(BaseSingleObjectTracker):
                     (bbox_pred_list[bi].cpu().numpy(), best_score.cpu().numpy()[None]))
         return results
 
-    def forward_train(self, img, img_metas, gt_bboxes, search_img,
+    def forward_train(self, img, img_metas, gt_bboxes, search_img, 
                       search_img_metas, search_gt_bboxes, is_positive_pairs,
                       **kwargs):
         """
@@ -445,17 +450,49 @@ class MSTracker(BaseSingleObjectTracker):
         Returns:
             dict[str, Tensor]: a dictionary of loss components.
         """
+
+        # print("forward_train", img.shape)
+        # print(search_img.shape)
+        # print(img_metas)
+        # print(search_img_metas)
+        # print("scgt:", search_gt_bboxes)
+        # print(is_positive_pairs)
+
         search_img = search_img[:, 0]
+
+        search_gt_bboxes_list = [search_gt_bboxes]
 
         z_feat = self.forward_template(img)
         x_feat = self.forward_search(search_img)
-        cls_score, bbox_pred = self.head(z_feat, x_feat, gt_bboxes)
+        # print(len(z_feat))
+        # print(len(x_feat))
+        # print(z_feat[0].shape)
+        # print(x_feat[0].shape)
+
+        # gt_bboxes = [[b] for b in gt_bboxes]
+        # print("gt:", gt_bboxes)
+        cls_score_list, bbox_pred_list = self.head(z_feat, x_feat, gt_bboxes)
+
+        # print("cls_score_list: ", cls_score_list.size())
+        # print("bbox_pred_list: ", bbox_pred_list.size())
 
         losses = dict()
-        bbox_targets = self.head.get_targets(search_gt_bboxes,
-                                             cls_score.shape[2:],
-                                             is_positive_pairs)
-        head_losses = self.head.loss(cls_score, bbox_pred, *bbox_targets)
-        losses.update(head_losses)
+        # bbox_targets = self.head.get_targets(search_gt_bboxes,
+        #                                     cls_score.shape[2:],
+        #                                     is_positive_pairs)
+        # head_losses = self.head.loss(cls_score, bbox_pred_list[bi], *bbox_targets)
+        # losses.update(head_losses)
+        # head_losses = dict()
+        # print("search_gt_bboxes_list",search_gt_bboxes_list)
+        # print("bbox_pred_list",bbox_pred_list)
+        print("bbox_pred_list",bbox_pred_list[0].shape)
+        print("search_gt_bboxes_list",search_gt_bboxes_list[0][0].shape)
+        for bi, cls_score in enumerate(cls_score_list):
+            bbox_targets = self.head.get_targets(gt_bboxes,
+                                                search_gt_bboxes_list[bi],
+                                                cls_score.shape[2:],
+                                                is_positive_pairs)
+            head_losses = self.head.loss(cls_score, bbox_pred_list[bi], *bbox_targets)
+            losses.update(head_losses)
 
         return losses

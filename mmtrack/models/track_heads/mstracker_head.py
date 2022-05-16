@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
+import cv2
 @HEADS.register_module()
 class MCorrelationHead(BaseModule):
 
@@ -57,7 +58,7 @@ class MCorrelationHead(BaseModule):
                 kernel_size=1,
                 act_cfg=None))
         
-        self.RoI_align = torchvision.ops.RoIAlign(output_size=(7,7), spatial_scale=125/1024, sampling_ratio=-1)
+        self.RoI_align = torchvision.ops.RoIAlign(output_size=(25,25), spatial_scale=125/1024, sampling_ratio=-1)
 
     def cyclic_shift(self, fmap, dim=2, shift=0):
         index_array = torch.range(0, fmap.shape[dim]-1, 1).cuda().long()
@@ -117,14 +118,19 @@ class MCorrelationHead(BaseModule):
         # print("kernel_shift_chunk: ", kernel_shift_chunk.shape)
         # print("bbox_list:", bbox_list)
 
-        bbox_list_xyxy = [torch.unsqueeze(b.clone(), 0).float() for b in bbox_list]
-        for bi, bbox in enumerate(bbox_list_xyxy):
-            bbox_list_xyxy[bi][0][0] = bbox[0][0] - bbox[0][2]/2
-            bbox_list_xyxy[bi][0][1] = bbox[0][1] - bbox[0][3]/2
-            bbox_list_xyxy[bi][0][2] = bbox[0][0] + bbox[0][2]/2
-            bbox_list_xyxy[bi][0][3] = bbox[0][1] + bbox[0][3]/2
+        if len(bbox_list[0].shape) == 1:  # test
+            bbox_list_xyxy = [torch.unsqueeze(b.clone(), 0).float() for b in bbox_list]
+            for bi, bbox in enumerate(bbox_list_xyxy):
+                bbox_list_xyxy[bi][0][0] = bbox[0][0] - bbox[0][2]/2
+                bbox_list_xyxy[bi][0][1] = bbox[0][1] - bbox[0][3]/2
+                bbox_list_xyxy[bi][0][2] = bbox[0][0] + bbox[0][2]/2
+                bbox_list_xyxy[bi][0][3] = bbox[0][1] + bbox[0][3]/2
+        else:  # train
+            bbox_list_xyxy = [b.clone().float() for b in bbox_list]
+        
         # print(bbox_list_xyxy.size())
         # bbox_list_xyxy = torch.tensor(bbox_list_xyxy)
+        # print("kernel_shift_chunk: ", kernel_shift_chunk.shape)
         output_roi = self.RoI_align(kernel_shift_chunk, bbox_list_xyxy)
         # # plotting  
         # sns.heatmap(kernel_shift.sum(0).sum(0).cpu().numpy(), vmin=0, vmax=150)
@@ -140,7 +146,7 @@ class MCorrelationHead(BaseModule):
 
         # print("output_roi: ", output_roi.shape)
         out = self.head_convs(output_roi)
-        out = torch.unsqueeze(out, 1)
+        out = torch.unsqueeze(out, 0)
         # print("out: ", out.shape)
         return out
 
@@ -220,11 +226,11 @@ class MSTrackerHead(BaseModule):
         for i in range(len(in_channels)):
             self.cls_heads.append(
                 MCorrelationHead(in_channels[i], in_channels[i],
-                                2 * self.anchor_generator.num_base_anchors[0],
+                                2,
                                 kernel_size, norm_cfg))
             self.reg_heads.append(
                 MCorrelationHead(in_channels[i], in_channels[i],
-                                4 * self.anchor_generator.num_base_anchors[0],
+                                4,
                                 kernel_size, norm_cfg))
 
         self.weighted_sum = weighted_sum
@@ -276,8 +282,8 @@ class MSTrackerHead(BaseModule):
 
         # print("cls_score: ", cls_score)
         # print("bbox_pred: ", bbox_pred)
-        # print("cls_score: ", cls_score.size())
-        # print("bbox_pred: ", bbox_pred.size())
+        print("cls_score: ", cls_score.size())
+        print("bbox_pred: ", bbox_pred.size())
 
 
         return cls_score, bbox_pred
@@ -314,7 +320,7 @@ class MSTrackerHead(BaseModule):
          bbox_weights) = self._get_init_targets(gt_bbox, score_maps_size)
 
         if not hasattr(self, 'anchors'):
-            self.anchors = self.anchor_generator.grid_priors(
+            self.anchors = self.anchor_generator.ms_grid_priors(prv_gt_bboxes, 
                 [score_maps_size], device=gt_bbox.device)[0]
             # Transform the coordinate origin from the top left corner to the
             # center in the scaled score map.
@@ -323,18 +329,55 @@ class MSTrackerHead(BaseModule):
             self.anchors[:, 0:4:2] -= (feat_w // 2) * stride_w
             self.anchors[:, 1:4:2] -= (feat_h // 2) * stride_h
 
+        # for ii, item in enumerate(self.anchors):
+        #     print(ii, item)
+        # print("gt_bbox", gt_bbox)
+        # print("raw anchors", len(self.anchors))
+        # print("raw anchors", len(self.anchors[0]))
+        # print("raw anchors", self.anchors.shape)
         anchors = self.anchors.clone()
 
         # The scaled feature map and the searched image have the same center.
         # Transform coordinate origin from the center to the top left corner in
         # the searched image.
+        # print("search_size", self.train_cfg.search_size)
         anchors += self.train_cfg.search_size // 2
 
+        # print("anchors", anchors)
+        # print(anchors, "cscdc") 
+        # print(gt_bbox[:, 1:])
+
+        # img1 = np.zeros((1024, 1024, 3), np.uint8)
+        # for ii, item in enumerate(anchors):
+        #     if item[0] <= 0 or item[1] <= 0 or item[2] <= 0 or item[3] <= 0:
+        #         continue
+            
+        #     if abs(item[0] - gt_bbox[0][1]) < 120 and abs(item[1] - gt_bbox[0][2]) < 120 and abs(item[2] - gt_bbox[0][3]) < 120 and abs(item[3] - gt_bbox[0][4]) < 120:
+        #         item = item.cpu().numpy()
+        #         a = (int(item[0]), int(item[1]))  # a = (x_min, y_min)#左上角坐标(x1,y1)
+        #         b = (int(item[2]), int(item[3]))  # b = (x_max, y_max)#右下角坐标（x2,y2）
+        #         print("ab", a, b)
+        #         cv2.rectangle(img1, a, b, ((ii+160) % 255, ii % 255, (ii+80) % 255), 2)
+        # cv2.imwrite("/zhzhao/code/mmtracking_master_20220513/sys_log/anchor.png", img1)
+
+        # img2 = np.zeros((1024, 1024, 3), np.uint8)
+        # gt_bbox = gt_bbox.cpu().numpy()
+        # a = (int(gt_bbox[0][1]), int(gt_bbox[0][2]))  # a = (x_min, y_min)#左上角坐标(x1,y1)
+        # b = (int(gt_bbox[0][3]), int(gt_bbox[0][4]))  # b = (x_max, y_max)#右下角坐标（x2,y2）
+        # print("ab", a, b)
+        # cv2.rectangle(img2, a, b, (0, 255, 0), 2)
+        # cv2.imwrite("/zhzhao/code/mmtracking_master_20220513/sys_log/gt.png", img2)
+
         assign_result = self.assigner.assign(anchors, gt_bbox[:, 1:])
+
+        # print("assign_result", assign_result)
         sampling_result = self.sampler.sample(assign_result, anchors,
                                               gt_bbox[:, 1:])
+        print("sampling_result", sampling_result)
         pos_inds = sampling_result.pos_inds
         neg_inds = sampling_result.neg_inds
+        # print("pos_inds", pos_inds)
+        # print("pos_inds", pos_inds)
         neg_upper_bound = int(self.sampler.num *
                               (1 - self.sampler.pos_fraction))
         if len(neg_inds) > neg_upper_bound:
@@ -353,7 +396,7 @@ class MSTrackerHead(BaseModule):
             anchors, gt_bbox[:, 1:].repeat(anchors.shape[0], 1))
         return labels, labels_weights, bbox_targets, bbox_weights
 
-    def _get_negative_pair_targets(self, gt_bbox, score_maps_size):
+    def _get_negative_pair_targets(self, prv_gt_bboxes, gt_bbox, score_maps_size):
         """Generate the training targets for negative exemplar image and search
         image pair.
 
@@ -407,7 +450,7 @@ class MSTrackerHead(BaseModule):
 
         return labels, labels_weights, bbox_targets, bbox_weights
 
-    def get_targets(self, gt_bboxes, score_maps_size, is_positive_pairs):
+    def get_targets(self, prv_gt_bboxes, gt_bboxes, score_maps_size, is_positive_pairs):
         """Generate the training targets for exemplar image and search image
         pairs.
 
@@ -427,23 +470,38 @@ class MSTrackerHead(BaseModule):
             (N, H * W * num_base_anchors, 4), respectively. All of them are
             Tensor.
         """
+
         (all_labels, all_labels_weights, all_bbox_targets,
          all_bbox_weights) = [], [], [], []
 
         for gt_bbox, is_positive_pair in zip(gt_bboxes, is_positive_pairs):
             if is_positive_pair:
                 (labels, labels_weights, bbox_targets,
-                 bbox_weights) = self._get_positive_pair_targets(
-                     gt_bbox, score_maps_size)
+                 bbox_weights) = self._get_positive_pair_targets(prv_gt_bboxes,
+                     gt_bbox.float(), score_maps_size)
             else:
                 (labels, labels_weights, bbox_targets,
-                 bbox_weights) = self._get_negative_pair_targets(
-                     gt_bbox, score_maps_size)
+                 bbox_weights) = self._get_negative_pair_targets(prv_gt_bboxes,
+                     gt_bbox.float(), score_maps_size)
 
             all_labels.append(labels)
             all_labels_weights.append(labels_weights)
             all_bbox_targets.append(bbox_targets)
             all_bbox_weights.append(bbox_weights)
+
+            # print("gt_bbox", gt_bbox)
+            # print("score_maps_size", score_maps_size)
+            # print("labels", labels)
+            # print("labels_weights", labels_weights)
+            # print("bbox_targets", bbox_targets)
+            # print("bbox_weights", bbox_weights)
+
+            # print("gt_bbox", gt_bbox.shape)
+            # print("score_maps_size", score_maps_size)
+            # print("labels", labels.shape)
+            # print("labels_weights", labels_weights.shape)
+            # print("bbox_targets", bbox_targets.shape)
+            # print("bbox_weights", bbox_weights.shape)
 
         all_labels = torch.stack(all_labels)
         all_labels_weights = torch.stack(all_labels_weights) / len(
@@ -452,6 +510,10 @@ class MSTrackerHead(BaseModule):
         all_bbox_weights = torch.stack(all_bbox_weights) / len(
             all_bbox_weights)
 
+        # print("all_labels", all_labels.shape)
+        # print("all_labels_weights", all_labels_weights.shape)
+        # print("all_bbox_targets", all_bbox_targets.shape)
+        # print("all_bbox_weights", all_bbox_weights.shape)
         return (all_labels, all_labels_weights, all_bbox_targets,
                 all_bbox_weights)
 
@@ -471,6 +533,7 @@ class MSTrackerHead(BaseModule):
         Returns:
             dict[str, Tensor]: a dictionary of loss components
         """
+        # print(cls_score.shape, labels.shape)
         losses = {}
         N, _, H, W = cls_score.shape
 
@@ -478,6 +541,7 @@ class MSTrackerHead(BaseModule):
         cls_score = cls_score.permute(0, 3, 4, 2, 1).contiguous().view(-1, 2)
         labels = labels.view(-1)
         labels_weights = labels_weights.view(-1)
+        # print(cls_score.shape, labels.shape)
         losses['loss_rpn_cls'] = self.loss_cls(
             cls_score, labels, weight=labels_weights)
 
