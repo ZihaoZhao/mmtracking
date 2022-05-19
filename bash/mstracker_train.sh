@@ -1,4 +1,14 @@
 #!/usr/bin/env bash
+###
+ # @Author       : Zihao Zhao
+ # @E-mail       : zhzhao18@fudan.edu.cn
+ # @Company      : IBICAS, Fudan University
+ # @Date         : 2022-05-15 23:41:19
+ # @LastEditors  : Zihao Zhao
+ # @LastEditTime : 2022-05-19 15:44:21
+ # @FilePath     : /mmtracking/bash/mstracker_train.sh
+ # @Description  : 
+### 
 
 exp_name="mstracker_coco_vot2018"
 CONFIG="/zhzhao/code/mmtracking_master_20220513/configs/sot/siamese_rpn/mstracker_20e_vot2018_coco.py"
@@ -16,6 +26,7 @@ MASTER_ADDR=${MASTER_ADDR:-"127.0.0.1"}
     --master_port=$PORT \
     /zhzhao/code/mmtracking_master_20220513/tools/train.py \
     $CONFIG \
+    --work-dir /zhzhao/code/mmtracking_master_20220513/work_dirs/${exp_name} \
     --launcher pytorch \
     ${@:3} \
 > /zhzhao/code/mmtracking_master_20220513/sys_log/${exp_name}.txt 2>&1

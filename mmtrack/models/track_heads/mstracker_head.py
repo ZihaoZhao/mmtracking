@@ -72,23 +72,30 @@ class MCorrelationHead(BaseModule):
         shift_map = torch.index_select(fmap, dim, index_array)
         return shift_map
 
-    # def bbox_scale_down(self, bound, bbox_list, scale):
-    #     bbox_list_scaledown = bbox_list * scale
-    #     if bbox_list_scaledown[0] < 0:
-    #         bbox_list_scaledown[0] = 0
-    #     if bbox_list_scaledown[1] < 0:
-    #         bbox_list_scaledown[1] = 0
-    #     if bbox_list_scaledown[0] > bound[0]:
-    #         bbox_list_scaledown[0] = bound[0]
-    #     if bbox_list_scaledown[1] > bound[1]:
-    #         bbox_list_scaledown[1] = bound[1]
-    #     bbox_list_scaledown = torch.round(bbox_list_scaledown)
-    #     return bbox_list_scaledown.int()
+    def bbox_scale_down(self, bound, bbox_list, scale):
+        # print(bound)
+        # print(bbox_list)
+        bbox_list_scaledown = list()
+        for bbox in bbox_list:
+            # print("bbox:", bbox)
+            bbox_scaledown = bbox * scale
+            if bbox_scaledown[0][0] < 0:
+                bbox_scaledown[0][0] = 0
+            if bbox_scaledown[0][1] < 0:
+                bbox_scaledown[0][1] = 0
+            if bbox_scaledown[0][0] >= bound[0]:
+                bbox_scaledown[0][0] = bound[0]-1
+            if bbox_scaledown[0][1] >= bound[1]:
+                bbox_scaledown[0][1] = bound[1]-1
+            bbox_scaledown = torch.floor(bbox_scaledown).int()
+            bbox_list_scaledown.append(bbox_scaledown)
+        # print(bbox_list_scaledown)
+        return bbox_list_scaledown
 
 
     def forward(self, kernel, search, bbox_list):
+        
         # print(bbox_list)
-        # bbox_list_scaledown = self.bbox_scale_down([kernel.shape[2], kernel.shape[3]], bbox_list, scale=125/1024)
         # print(bbox_list_scaledown)
 
         # print("kernel: ", kernel.shape)
@@ -98,14 +105,34 @@ class MCorrelationHead(BaseModule):
         # print("kernel: ", kernel.shape)
         # print("search: ", search.shape)
         
+        # bbox_list_scaledown = self.bbox_scale_down([kernel.shape[2], kernel.shape[3]], bbox_list, scale=125/1024)
         # # plotting  
-        # kernel_vis = kernel.sum(0).sum(0).cpu().numpy()
-        # for y in range(bbox_list_scaledown[0], bbox_list_scaledown[0]+bbox_list_scaledown[2]):
-        #     for x in range(bbox_list_scaledown[1], bbox_list_scaledown[1]+bbox_list_scaledown[3]):
-        #         kernel_vis[x][y] = 0
-        # sns.heatmap(kernel_vis, vmin=0, vmax=150)
+        # bbox_format="xywh"
+        # # bbox_format="xyxy"
+        # if bbox_format == "xywh":
+        #     kernel_vis = kernel.clone().sum(0).sum(0).cpu().detach().numpy()
+        #     for bi, bbox in enumerate(bbox_list_scaledown):
+        #         print("vis_bbox: ", bbox, bbox_list[bi])
+        #         for y in range(bbox[0][0], bbox[0][0]+bbox[0][2]):
+        #             for x in range(bbox[0][1], bbox[0][1]+bbox[0][3]):
+        #                 try:
+        #                     kernel_vis[x][y] = 0
+        #                 except:
+        #                     print(x, y)
+        # elif bbox_format == "xyxy":
+        #     kernel_vis = kernel.sum(0).sum(0).cpu().detach().numpy()
+        #     for bi, bbox in enumerate(bbox_list_scaledown):
+        #         print("vis_bbox: ", bbox, bbox_list[bi])
+        #         for y in range(bbox[0][0], bbox[0][2]):
+        #             for x in range(bbox[0][1], bbox[0][3]):
+        #                 try:
+        #                     kernel_vis[x][y] = 0
+        #                 except:
+        #                     print(x, y)
+        # sns.heatmap(kernel_vis)
         # plt.savefig("/zhzhao/code/mmtracking_master_20220513/sys_log/kernel.png") 
         # plt.close()
+
         search_region = 2
         for shift_x in range(-1*search_region, search_region+1):
             for shift_y in range(-1*search_region, search_region+1):
@@ -121,15 +148,12 @@ class MCorrelationHead(BaseModule):
         # print("kernel_shift_chunk: ", kernel_shift_chunk.shape)
         # print("bbox_list:", bbox_list)
 
-        if len(bbox_list[0].shape) == 1:  # test
-            bbox_list_xyxy = [torch.unsqueeze(b.clone(), 0).float() for b in bbox_list]
-            for bi, bbox in enumerate(bbox_list_xyxy):
-                bbox_list_xyxy[bi][0][0] = bbox[0][0] - bbox[0][2]/2
-                bbox_list_xyxy[bi][0][1] = bbox[0][1] - bbox[0][3]/2
-                bbox_list_xyxy[bi][0][2] = bbox[0][0] + bbox[0][2]/2
-                bbox_list_xyxy[bi][0][3] = bbox[0][1] + bbox[0][3]/2
-        else:  # train
-            bbox_list_xyxy = [b.clone().float() for b in bbox_list]
+        bbox_list_xyxy = [b.clone().float() for b in bbox_list]
+        for bi, bbox in enumerate(bbox_list_xyxy):
+            bbox_list_xyxy[bi][0][0] = bbox[0][0] - bbox[0][2]/2
+            bbox_list_xyxy[bi][0][1] = bbox[0][1] - bbox[0][3]/2
+            bbox_list_xyxy[bi][0][2] = bbox[0][0] + bbox[0][2]/2
+            bbox_list_xyxy[bi][0][3] = bbox[0][1] + bbox[0][3]/2
         
         # print(bbox_list_xyxy.size())
         # bbox_list_xyxy = torch.tensor(bbox_list_xyxy)
@@ -259,6 +283,7 @@ class MSTrackerHead(BaseModule):
             x_feats (tuple[Tensor]): Tuple of Tensor with shape (N, C, H, W)
                 denoting the multi level feature maps of search images.
                 Typically H and W equal to 31.
+            bbox_list [(cx, cy, w, h)]
 
         Returns:
             tuple(cls_score, bbox_pred): cls_score is a Tensor with shape

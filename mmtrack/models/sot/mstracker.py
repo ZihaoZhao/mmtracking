@@ -258,6 +258,7 @@ class MSTracker(BaseSingleObjectTracker):
         x_feat = self.forward_search(x_crop)
         # print("x_feat num: ", len(x_feat))
         # print("z_feat num: ", len(z_feat))
+        bbox_list = [b.view(1,4)for b in bbox_list]
         cls_score_list, bbox_pred_list = self.head(z_feat, x_feat, bbox_list)
         scale_factor = 1 # self.test_cfg.exemplar_size / z_size
         best_score_list, best_bbox_list = self.head.get_bbox_list(cls_score_list, bbox_pred_list, bbox_list,
@@ -294,7 +295,7 @@ class MSTracker(BaseSingleObjectTracker):
             self.init_frame_id = 0
         if self.init_frame_id == frame_id:
             # initialization
-            gt_bboxes = gt_bboxes[0][0]
+            gt_bboxes = gt_bboxes[0]
             self.memo = Dict()
             self.memo.bbox = [quad2bbox(gt_bboxes)]
             self.memo.z_feat, self.memo.avg_channel = self.init(
@@ -469,9 +470,10 @@ class MSTracker(BaseSingleObjectTracker):
         # print(z_feat[0].shape)
         # print(x_feat[0].shape)
 
-        # gt_bboxes = [[b] for b in gt_bboxes]
+        gt_bboxes_cxywh = [quad2bbox(b).view(1,4) for b in gt_bboxes]
         # print("gt:", gt_bboxes)
-        cls_score_list, bbox_pred_list = self.head(z_feat, x_feat, gt_bboxes)
+        
+        cls_score_list, bbox_pred_list = self.head(z_feat, x_feat, gt_bboxes_cxywh)
 
         # print("cls_score_list: ", cls_score_list.size())
         # print("bbox_pred_list: ", bbox_pred_list.size())
