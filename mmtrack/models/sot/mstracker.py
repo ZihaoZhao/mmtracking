@@ -20,6 +20,8 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 
+import mmtrack.utils.vis as vis
+
 @MODELS.register_module()
 class MSTracker(BaseSingleObjectTracker):
 
@@ -475,6 +477,14 @@ class MSTracker(BaseSingleObjectTracker):
         
         cls_score_list, bbox_pred_list = self.head(z_feat, x_feat, gt_bboxes_cxywh)
 
+        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/ximg.png", \
+        #                 search_img.clone()[0][0].cpu().detach().numpy(), \
+        #                     bbox_list=[search_gt_bboxes[0]], bbox_format="0xyxy")
+        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/zimg.png", \
+        #                 img.clone()[0][0].cpu().detach().numpy(), \
+        #                     bbox_list=[gt_bboxes[0]], bbox_format="xyxy")
+
+        # exit()
         # print("cls_score_list: ", cls_score_list.size())
         # print("bbox_pred_list: ", bbox_pred_list.size())
 

@@ -16,6 +16,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
+import mmtrack.utils.vis as vis
 
 import cv2
 @HEADS.register_module()
@@ -45,11 +46,13 @@ class MCorrelationHead(BaseModule):
             norm_cfg=norm_cfg,
             act_cfg=act_cfg)
 
+        self.search_region = 0
+
         self.RoI_align = torchvision.ops.RoIAlign(output_size=(25,25), spatial_scale=125/1024, sampling_ratio=-1)
 
         self.head_convs = nn.Sequential(
             ConvModule(
-                in_channels=mid_channels*5,
+                in_channels=mid_channels*(self.search_region*2+1),
                 out_channels=mid_channels,
                 kernel_size=1,
                 norm_cfg=norm_cfg,
@@ -105,35 +108,18 @@ class MCorrelationHead(BaseModule):
         # print("kernel: ", kernel.shape)
         # print("search: ", search.shape)
         
+        # print(bbox_list)
         # bbox_list_scaledown = self.bbox_scale_down([kernel.shape[2], kernel.shape[3]], bbox_list, scale=125/1024)
-        # # plotting  
-        # bbox_format="xywh"
-        # # bbox_format="xyxy"
-        # if bbox_format == "xywh":
-        #     kernel_vis = kernel.clone().sum(0).sum(0).cpu().detach().numpy()
-        #     for bi, bbox in enumerate(bbox_list_scaledown):
-        #         print("vis_bbox: ", bbox, bbox_list[bi])
-        #         for y in range(bbox[0][0], bbox[0][0]+bbox[0][2]):
-        #             for x in range(bbox[0][1], bbox[0][1]+bbox[0][3]):
-        #                 try:
-        #                     kernel_vis[x][y] = 0
-        #                 except:
-        #                     print(x, y)
-        # elif bbox_format == "xyxy":
-        #     kernel_vis = kernel.sum(0).sum(0).cpu().detach().numpy()
-        #     for bi, bbox in enumerate(bbox_list_scaledown):
-        #         print("vis_bbox: ", bbox, bbox_list[bi])
-        #         for y in range(bbox[0][0], bbox[0][2]):
-        #             for x in range(bbox[0][1], bbox[0][3]):
-        #                 try:
-        #                     kernel_vis[x][y] = 0
-        #                 except:
-        #                     print(x, y)
-        # sns.heatmap(kernel_vis)
-        # plt.savefig("/zhzhao/code/mmtracking_master_20220513/sys_log/kernel.png") 
-        # plt.close()
+        # print(bbox_list_scaledown)
+        # plotting  
+        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/kernel.png", \
+        #                 kernel.clone()[0].sum(0).cpu().detach().numpy(), \
+        #                     bbox_list=[bbox_list_scaledown[0]], bbox_format="cxywh")
+        # exit()
+        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/kernel.png", \
+        #                 kernel.clone().sum(0).sum(0).cpu().detach().numpy())
 
-        search_region = 2
+        search_region = self.search_region
         for shift_x in range(-1*search_region, search_region+1):
             for shift_y in range(-1*search_region, search_region+1):
                 kernel_shift_x = self.cyclic_shift(kernel, dim=2, shift=shift_x)
@@ -150,15 +136,21 @@ class MCorrelationHead(BaseModule):
 
         bbox_list_xyxy = [b.clone().float() for b in bbox_list]
         for bi, bbox in enumerate(bbox_list_xyxy):
-            bbox_list_xyxy[bi][0][0] = bbox[0][0] - bbox[0][2]/2
-            bbox_list_xyxy[bi][0][1] = bbox[0][1] - bbox[0][3]/2
-            bbox_list_xyxy[bi][0][2] = bbox[0][0] + bbox[0][2]/2
-            bbox_list_xyxy[bi][0][3] = bbox[0][1] + bbox[0][3]/2
+            cx, cy = float(bbox[0][0]), float(bbox[0][1])
+            bbox_list_xyxy[bi][0][0] = cx - bbox[0][2]/2
+            bbox_list_xyxy[bi][0][1] = cy - bbox[0][3]/2
+            bbox_list_xyxy[bi][0][2] = cx + bbox[0][2]/2
+            bbox_list_xyxy[bi][0][3] = cy + bbox[0][3]/2
         
-        # print(bbox_list_xyxy.size())
+        # print(bbox_list_xyxy[0])
         # bbox_list_xyxy = torch.tensor(bbox_list_xyxy)
         # print("kernel_shift_chunk: ", kernel_shift_chunk.shape)
         output_roi = self.RoI_align(kernel_shift_chunk, bbox_list_xyxy)
+
+        # print("output_roi: ", output_roi.shape)
+        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/output_roi.png", \
+        #                 output_roi.clone()[0].sum(0).cpu().detach().numpy())
+
         # # plotting  
         # sns.heatmap(kernel_shift.sum(0).sum(0).cpu().numpy(), vmin=0, vmax=150)
         # plt.savefig("/zhzhao/code/mmtracking_master_20220513/sys_log/kernel_shift.png") 
@@ -330,6 +322,8 @@ class MSTrackerHead(BaseModule):
         image pair.
 
         Args:
+            prv_gt_bbox (Tensor): Ground truth bboxes of an search image with
+                shape (1, 4) in [tl_x, tl_y, br_x, br_y] format.
             gt_bbox (Tensor): Ground truth bboxes of an search image with
                 shape (1, 5) in [0.0, tl_x, tl_y, br_x, br_y] format.
             score_maps_size (torch.size): denoting the output size
@@ -398,6 +392,9 @@ class MSTrackerHead(BaseModule):
         pairs.
 
         Args:
+            prv_gt_bboxes (list[Tensor]): Ground truth bboxes of each
+                search image with shape (1, 4) in [tl_x, tl_y, br_x, br_y]
+                format.
             gt_bboxes (list[Tensor]): Ground truth bboxes of each
                 search image with shape (1, 5) in [0.0, tl_x, tl_y, br_x, br_y]
                 format.
@@ -568,3 +565,4 @@ class MSTrackerHead(BaseModule):
         final_bbox[3] = prev_bbox[3] * (1 - lr) + best_bbox[3] * lr
 
         return best_score, final_bbox
+
