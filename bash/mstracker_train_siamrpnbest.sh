@@ -5,13 +5,13 @@
  # @Company      : IBICAS, Fudan University
  # @Date         : 2022-05-16 23:30:31
  # @LastEditors  : Zihao Zhao
- # @LastEditTime : 2022-05-19 15:44:35
+ # @LastEditTime : 2022-05-22 18:53:43
  # @FilePath     : /mmtracking/bash/mstracker_train_siamrpnbest.sh
  # @Description  : 
 ### 
 
 exp_name="mstracker_coco_vot2018_siamrpnbest"
-CONFIG="/zhzhao/code/mmtracking_master_20220513/configs/sot/siamese_rpn/mstracker_20e_vot2018_coco.py"
+CONFIG="/zhzhao/code/mmtracking_master_20220513/configs/sot/mstracker/mstracker_20e_vot2018_coco.py"
 GPUS=2
 NNODES=${NNODES:-1}
 NODE_RANK=${NODE_RANK:-0}

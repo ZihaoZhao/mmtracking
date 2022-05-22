@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import seaborn as sns
 import mmtrack.utils.vis as vis
+from mmtrack.utils.gpu_mem_track import MemTracker
 
 import cv2
 @HEADS.register_module()
@@ -46,19 +47,19 @@ class MCorrelationHead(BaseModule):
             norm_cfg=norm_cfg,
             act_cfg=act_cfg)
 
-        self.search_region = 0
+        self.search_region = 4
 
         self.RoI_align = torchvision.ops.RoIAlign(output_size=(25,25), spatial_scale=125/1024, sampling_ratio=-1)
 
         self.head_convs = nn.Sequential(
             ConvModule(
-                in_channels=mid_channels*(self.search_region*2+1),
-                out_channels=mid_channels,
+                in_channels=(self.search_region*2+1)*(self.search_region*2+1),
+                out_channels=(self.search_region*2+1)*(self.search_region*2+1),
                 kernel_size=1,
                 norm_cfg=norm_cfg,
                 act_cfg=act_cfg),
             ConvModule(
-                in_channels=mid_channels,
+                in_channels=(self.search_region*2+1)*(self.search_region*2+1),
                 out_channels=out_channels,
                 kernel_size=1,
                 act_cfg=None))
@@ -100,7 +101,8 @@ class MCorrelationHead(BaseModule):
         
         # print(bbox_list)
         # print(bbox_list_scaledown)
-
+        # gpu_tracker = MemTracker()      
+        # gpu_tracker.track()  
         # print("kernel: ", kernel.shape)
         # print("search: ", search.shape)
         kernel = self.kernel_convs(kernel)
@@ -108,31 +110,48 @@ class MCorrelationHead(BaseModule):
         # print("kernel: ", kernel.shape)
         # print("search: ", search.shape)
         
-        # print(bbox_list)
+        # print("bbox_list", bbox_list)
         # bbox_list_scaledown = self.bbox_scale_down([kernel.shape[2], kernel.shape[3]], bbox_list, scale=125/1024)
-        # print(bbox_list_scaledown)
-        # plotting  
-        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/kernel.png", \
+        # print("bbox_list_scaledown", bbox_list_scaledown)
+        # # # plotting  
+        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/vis/kernel.png", \
         #                 kernel.clone()[0].sum(0).cpu().detach().numpy(), \
         #                     bbox_list=[bbox_list_scaledown[0]], bbox_format="cxywh")
-        # exit()
-        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/kernel.png", \
-        #                 kernel.clone().sum(0).sum(0).cpu().detach().numpy())
-
+        # # # plotting  
+        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/vis/search.png", \
+        #                 search.clone()[0].sum(0).cpu().detach().numpy(), \
+        #                     bbox_list=[bbox_list_scaledown[0]], bbox_format="cxywh")
+        # # exit()
+        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/vis/kernel_raw.png", \
+        #                 kernel.clone()[0].sum(0).cpu().detach().numpy())
+        # print(torch.cuda.memory_allocated()/1024/1024)
         search_region = self.search_region
         for shift_x in range(-1*search_region, search_region+1):
             for shift_y in range(-1*search_region, search_region+1):
+                # print("xy:", shift_x, shift_y)
                 kernel_shift_x = self.cyclic_shift(kernel, dim=2, shift=shift_x)
                 kernel_shift = self.cyclic_shift(kernel_shift_x, dim=3, shift=shift_y)
                 # kernel_shift = torch.unsqueeze(kernel_shift, 0)
                 # kernel_shift = torch.unsqueeze(kernel_shift, 0)
-                if shift_y == -1*search_region and shift_y == -1*search_region:
-                    kernel_shift_chunk = kernel_shift
-                else:
-                    kernel_shift_chunk = torch.cat((kernel_shift_chunk, kernel_shift), 1)
 
-        # print("kernel_shift_chunk: ", kernel_shift_chunk.shape)
-        # print("bbox_list:", bbox_list)
+                response_map_part = kernel_shift.mul(search).sum(1).unsqueeze(1)
+
+                # if shift_x == 3 and shift_y == 3:
+                #     print("response_map_part:", response_map_part.shape)
+                #     vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/vis/response_map_part{:}{:}.png".format(shift_x, shift_y), \
+                #                     response_map_part.clone()[0].sum(0).cpu().detach().numpy())
+                # print(shift_x, shift_y, torch.cuda.memory_allocated()/1024/1024)
+                if shift_x == -1*search_region and shift_y == -1*search_region:
+                    response_map = response_map_part
+                    # print("response_map_part:", response_map_part.shape)
+                else:
+                    response_map = torch.cat((response_map, response_map_part), 1)
+                    # print("response_map_part:", response_map_part.shape)
+                # print(torch.cuda.memory_allocated()/1024/1024)
+                torch.cuda.empty_cache()
+        # print("response_map:", response_map.shape)
+        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/vis/response_map.png", \
+        #                 response_map.clone()[0].sum(0).cpu().detach().numpy())
 
         bbox_list_xyxy = [b.clone().float() for b in bbox_list]
         for bi, bbox in enumerate(bbox_list_xyxy):
@@ -145,10 +164,10 @@ class MCorrelationHead(BaseModule):
         # print(bbox_list_xyxy[0])
         # bbox_list_xyxy = torch.tensor(bbox_list_xyxy)
         # print("kernel_shift_chunk: ", kernel_shift_chunk.shape)
-        output_roi = self.RoI_align(kernel_shift_chunk, bbox_list_xyxy)
+        output_roi = self.RoI_align(response_map, bbox_list_xyxy)
 
         # print("output_roi: ", output_roi.shape)
-        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/output_roi.png", \
+        # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/vis/output_roi.png", \
         #                 output_roi.clone()[0].sum(0).cpu().detach().numpy())
 
         # # plotting  
@@ -170,6 +189,7 @@ class MCorrelationHead(BaseModule):
         out = self.head_fc1(out.view(out.shape[0], out.shape[1], -1))
         # print("out: ", out.shape)
         out = out.permute(2, 0, 1)
+        # gpu_tracker.track()  
         # print("out: ", out.shape)
         return out
 
@@ -335,9 +355,15 @@ class MSTrackerHead(BaseModule):
             (H * W * num_base_anchors, 4), (H * W * num_base_anchors, 4)
             respectively. All of them are Tensor.
         """
-
+        # print("prv_gt_bbox", prv_gt_bbox)
+        # print("gt_bbox[:, 1:]", gt_bbox[:, 1:])
+        # bbox_targets = gt_bbox[:, 1:] - prv_gt_bbox
         bbox_targets = self.bbox_coder.encode(prv_gt_bbox, gt_bbox[:, 1:])
-        bbox_weights = torch.ones_like(bbox_targets)
+        # print("bbox_targets", bbox_targets)
+        if float(bbox_targets.abs()[0][0] > 0.9) or float(bbox_targets.abs()[0][1]) > 0.9 or float(bbox_targets.abs()[0][2]) > 0.9 or float(bbox_targets.abs()[0][3]) > 0.9:
+            bbox_weights = torch.zeros_like(bbox_targets)
+        else:
+            bbox_weights = torch.ones_like(bbox_targets)
         # print("bbox_targets", bbox_targets)
         labels = torch.ones((1)).cuda().long()
         return labels, bbox_targets, bbox_weights
@@ -380,7 +406,11 @@ class MSTrackerHead(BaseModule):
         if gt_bbox_neg[0][4] > 1024:
             gt_bbox_neg[0][4] = 1024
 
+        # print("prv_gt_bbox", prv_gt_bbox)
+        # print("gt_bbox_neg[:, 1:]", gt_bbox_neg[:, 1:])
+        # bbox_targets = gt_bbox_neg[:, 1:] - prv_gt_bbox
         bbox_targets = self.bbox_coder.encode(prv_gt_bbox, gt_bbox_neg[:, 1:])
+        # print("bbox_targets", bbox_targets)
         bbox_weights = torch.zeros_like(bbox_targets)
         # print("bbox_targets", bbox_targets)
         labels = torch.zeros((1)).cuda().long()
@@ -427,6 +457,15 @@ class MSTrackerHead(BaseModule):
         all_bbox_targets = torch.stack(all_bbox_targets)
         all_bbox_weights = torch.stack(all_bbox_weights)
 
+        if torch.isnan(all_bbox_targets).int().sum() >= 1 or \
+            torch.isinf(all_bbox_targets).int().sum() >= 1 :
+            print("all_labels", all_labels)
+            print("bbox_targets", all_bbox_targets)
+            print("bbox_weights", all_bbox_weights)
+            print("prv_gt_bboxes", prv_gt_bboxes)
+            print("gt_bboxes", gt_bboxes)
+            print("is_positive_pairs", is_positive_pairs)
+            exit()
         return (all_labels, all_bbox_targets, all_bbox_weights)
 
     @force_fp32(apply_to=('cls_score', 'bbox_pred'))
@@ -446,19 +485,27 @@ class MSTrackerHead(BaseModule):
         """
         losses = {}
         labels = labels.view(-1)
+        # print("cls_score", cls_score)
+        # print("labels", labels)
         losses['loss_rpn_cls'] = self.loss_cls(cls_score, labels)
+        # print("loss_rpn_cls", losses['loss_rpn_cls'])
 
         bbox_targets = bbox_targets.view(-1, 4)
         bbox_weights = bbox_weights.view(-1, 4)
         bbox_pred = bbox_pred.view(-1, 4)
 
+        # print("bbox_pred", bbox_pred)
+        # print("bbox_targets", bbox_targets)
+        # print("bbox_weights", bbox_weights)
         losses['loss_rpn_bbox'] = self.loss_bbox(bbox_pred, bbox_targets, weight=bbox_weights)
+        # print(" "*80,"loss_rpn_bbox", losses['loss_rpn_bbox'] )
+        # print(" ")
         if torch.isnan(losses['loss_rpn_bbox']).int().sum() >= 1 or \
-            torch.isinf(losses['loss_rpn_bbox']).int().sum() >= 1 :
+            torch.isinf(losses['loss_rpn_bbox']).int().sum() >= 1:
             print("bbox_targets", bbox_targets)
             print("bbox_weights", bbox_weights)
             print("bbox_pred", bbox_pred)
-            print("losses[loss_rpn_bbox]", losses['loss_rpn_bbox'])
+            print(" "*80,"losses[loss_rpn_bbox]", losses['loss_rpn_bbox'])
             exit()
         return losses
 
@@ -516,6 +563,7 @@ class MSTrackerHead(BaseModule):
         bbox_pred = bbox_pred.view(-1, 4)
         # print("prev_bbox", prev_bbox.shape, prev_bbox)
         # print("bbox_pred", bbox_pred.shape, bbox_pred)
+        # bbox_pred = prev_bbox + bbox_pred
         bbox_pred = self.bbox_coder.decode(prev_bbox, bbox_pred)
         # print("bbox_pred", bbox_pred.shape, bbox_pred)
         bbox_pred = bbox_xyxy_to_cxcywh(bbox_pred)

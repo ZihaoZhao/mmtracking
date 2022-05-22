@@ -2,7 +2,7 @@ cudnn_benchmark = False
 deterministic = True
 seed = 1
 find_unused_parameters = True
-crop_size = 511
+crop_size = 1024
 exemplar_size = 1024
 search_size = 1024
 
@@ -85,7 +85,7 @@ train_pipeline = [
     dict(
         type='SeqShiftScaleAug',
         target_size=[exemplar_size, search_size],
-        shift=[4, 64],
+        shift=[4, 20],
         scale=[0.05, 0.18]),
     dict(type='SeqColorAug', prob=[1.0, 1.0]),
     dict(type='SeqBlurAug', prob=[0.0, 0.2]),
@@ -107,7 +107,7 @@ test_pipeline = [
 ]
 # dataset settings
 data = dict(
-    samples_per_gpu=6,
+    samples_per_gpu=1,
     workers_per_gpu=4,
     persistent_workers=True,
     samples_per_epoch=600000,

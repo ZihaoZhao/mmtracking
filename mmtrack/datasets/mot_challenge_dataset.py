@@ -93,7 +93,7 @@ class MOTChallengeDataset(CocoVideoDataset):
         Returns:
             dict: A dict containing the following keys: bboxes, bboxes_ignore,
             labels, masks, seg_map. "masks" are raw annotations and not
-            decoded into binary masks.
+            d into binary masks.
         """
         gt_bboxes = []
         gt_labels = []

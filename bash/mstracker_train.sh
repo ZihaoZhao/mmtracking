@@ -5,14 +5,14 @@
  # @Company      : IBICAS, Fudan University
  # @Date         : 2022-05-15 23:41:19
  # @LastEditors  : Zihao Zhao
- # @LastEditTime : 2022-05-19 15:44:21
+ # @LastEditTime : 2022-05-22 18:53:37
  # @FilePath     : /mmtracking/bash/mstracker_train.sh
  # @Description  : 
 ### 
 
 exp_name="mstracker_coco_vot2018"
-CONFIG="/zhzhao/code/mmtracking_master_20220513/configs/sot/siamese_rpn/mstracker_20e_vot2018_coco.py"
-GPUS=4
+CONFIG="/zhzhao/code/mmtracking_master_20220513/configs/sot/mstracker/mstracker_20e_vot2018_coco.py"
+GPUS=2
 NNODES=${NNODES:-1}
 NODE_RANK=${NODE_RANK:-0}
 PORT=${PORT:-29500}

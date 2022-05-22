@@ -463,7 +463,21 @@ class MSTracker(BaseSingleObjectTracker):
 
         search_img = search_img[:, 0]
 
+        for bbox1 in gt_bboxes:
+            if int(bbox1[0][2]) <= int(bbox1[0][0]):
+                bbox1[0][2] += 1
+            if int(bbox1[0][3]) <= int(bbox1[0][1]):
+                bbox1[0][3] += 1
+
+        for bbox2 in search_gt_bboxes:
+            if int(bbox2[0][3]) <= int(bbox2[0][1]):
+                bbox2[0][3] += 1
+            if int(bbox2[0][4]) <= int(bbox2[0][2]):
+                bbox2[0][4] += 1
+
         search_gt_bboxes_list = [search_gt_bboxes]
+        # print("search_gt_bboxes_list", search_gt_bboxes_list)
+        # print("gt_bboxes", gt_bboxes)
 
         z_feat = self.forward_template(img)
         x_feat = self.forward_search(search_img)
