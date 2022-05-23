@@ -126,29 +126,43 @@ class MCorrelationHead(BaseModule):
         #                 kernel.clone()[0].sum(0).cpu().detach().numpy())
         # print(torch.cuda.memory_allocated()/1024/1024)
         search_region = self.search_region
-        for shift_x in range(-1*search_region, search_region+1):
-            for shift_y in range(-1*search_region, search_region+1):
+        # kernel_shift_x = self.cyclic_shift(kernel, dim=2, shift=search_region)
+        # kernel_shift = self.cyclic_shift(kernel_shift_x, dim=3, shift=search_region)
+
+
+        index_range = torch.range(0, kernel.shape[2]-1, 1).cuda().long()
+        index_array = torch.cat((index_range[-(search_region):], index_range))
+        index_array = torch.cat((index_array, index_range[:search_region]))
+        # print(index_array)
+        kernel_shift_x = torch.index_select(kernel, 2, index_array)
+        kernel_shift = torch.index_select(kernel_shift_x, 3, index_array)
+        # print("kernel_shift: ", kernel_shift.shape)
+
+
+        for shift_x in range(0, search_region*2+1):
+            for shift_y in range(search_region*2+1):
                 # print("xy:", shift_x, shift_y)
-                kernel_shift_x = self.cyclic_shift(kernel, dim=2, shift=shift_x)
-                kernel_shift = self.cyclic_shift(kernel_shift_x, dim=3, shift=shift_y)
+                # kernel_shift_x = self.cyclic_shift(kernel, dim=2, shift=shift_x)
+                # kernel_shift = self.cyclic_shift(kernel_shift_x, dim=3, shift=shift_y)
                 # kernel_shift = torch.unsqueeze(kernel_shift, 0)
                 # kernel_shift = torch.unsqueeze(kernel_shift, 0)
 
-                response_map_part = kernel_shift.mul(search).sum(1).unsqueeze(1)
+                response_map_part = kernel_shift[:,:, shift_x:kernel.shape[2]+shift_x, \
+                                                      shift_y:kernel.shape[3]+shift_y].mul(search).sum(1).unsqueeze(1)
 
                 # if shift_x == 3 and shift_y == 3:
                 #     print("response_map_part:", response_map_part.shape)
                 #     vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/vis/response_map_part{:}{:}.png".format(shift_x, shift_y), \
                 #                     response_map_part.clone()[0].sum(0).cpu().detach().numpy())
                 # print(shift_x, shift_y, torch.cuda.memory_allocated()/1024/1024)
-                if shift_x == -1*search_region and shift_y == -1*search_region:
+                if shift_x == 0 and shift_y == 0:
                     response_map = response_map_part
                     # print("response_map_part:", response_map_part.shape)
                 else:
                     response_map = torch.cat((response_map, response_map_part), 1)
                     # print("response_map_part:", response_map_part.shape)
                 # print(torch.cuda.memory_allocated()/1024/1024)
-                torch.cuda.empty_cache()
+                # torch.cuda.empty_cache()
         # print("response_map:", response_map.shape)
         # vis.save_heatmap("/zhzhao/code/mmtracking_master_20220513/sys_log/vis/response_map.png", \
         #                 response_map.clone()[0].sum(0).cpu().detach().numpy())
@@ -190,6 +204,7 @@ class MCorrelationHead(BaseModule):
         # print("out: ", out.shape)
         out = out.permute(2, 0, 1)
         # gpu_tracker.track()  
+        # exit()
         # print("out: ", out.shape)
         return out
 

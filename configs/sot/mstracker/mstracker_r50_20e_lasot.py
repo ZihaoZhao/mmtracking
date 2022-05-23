@@ -107,7 +107,7 @@ test_pipeline = [
 ]
 # dataset settings
 data = dict(
-    samples_per_gpu=1,
+    samples_per_gpu=8,
     workers_per_gpu=4,
     persistent_workers=True,
     samples_per_epoch=600000,
