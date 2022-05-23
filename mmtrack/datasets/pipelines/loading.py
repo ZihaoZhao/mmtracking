@@ -3,7 +3,8 @@ from mmdet.datasets.builder import PIPELINES
 from mmdet.datasets.pipelines import LoadAnnotations, LoadImageFromFile
 
 from mmtrack.core import results2outs
-
+import cv2
+import numpy as np
 
 @PIPELINES.register_module()
 class LoadMultiImagesFromFile(LoadImageFromFile):
@@ -87,6 +88,89 @@ class SeqLoadAnnotations(LoadAnnotations):
                 _results = self._load_track(_results)
             outs.append(_results)
         return outs
+
+
+@PIPELINES.register_module()
+class MSLoadImageFromFile(LoadImageFromFile):
+    """Load multi images from file.
+
+    Please refer to `mmdet.datasets.pipelines.loading.py:LoadImageFromFile`
+    for detailed docstring.
+    """
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def __call__(self, results):
+        """Call function.
+
+        For each dict in `results`, call the call function of
+        `LoadImageFromFile` to load image.
+
+        Args:
+            results (list[dict]): List of dict from
+                :obj:`mmtrack.CocoVideoDataset`.
+
+        Returns:
+            list[dict]: List of dict that contains loaded image.
+        """
+        results = super().__call__(results)
+
+        img_h, img_w = results['img'].shape[:2]
+        results['img'] = cv2.resize(results['img'], (1024, 1024))
+        results['ann_info']['bboxes'] *= np.array([1024/img_w, 1024/img_h, 1024/img_w, 1024/img_h, 1024/img_w, 1024/img_h, 1024/img_w, 1024/img_h],
+                         dtype=np.float32)
+        results['img_shape'] = (1024, 1024, 3)
+        # print("img", results)
+        return results
+
+@PIPELINES.register_module()
+class MSLoadAnnotations(LoadAnnotations):
+    """Sequence load annotations.
+
+    Please refer to `mmdet.datasets.pipelines.loading.py:LoadAnnotations`
+    for detailed docstring.
+
+    Args:
+        with_track (bool): If True, load instance ids of bboxes.
+    """
+
+    def __init__(self, with_track=False, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.with_track = with_track
+
+    def _load_track(self, results):
+        """Private function to load label annotations.
+
+        Args:
+            results (dict): Result dict from :obj:`mmtrack.CocoVideoDataset`.
+
+        Returns:
+            dict: The dict contains loaded label annotations.
+        """
+
+        results['gt_instance_ids'] = results['ann_info']['instance_ids'].copy()
+
+        return results
+
+    def __call__(self, results):
+        """Call function.
+
+        For each dict in results, call the call function of `LoadAnnotations`
+        to load annotation.
+
+        Args:
+            results (list[dict]): List of dict that from
+                :obj:`mmtrack.CocoVideoDataset`.
+
+        Returns:
+            list[dict]: List of dict that contains loaded annotations, such as
+            bounding boxes, labels, instance ids, masks and semantic
+            segmentation annotations.
+        """
+        results = super().__call__(results)
+        # print("anno", results)
+        return results
 
 
 @PIPELINES.register_module()

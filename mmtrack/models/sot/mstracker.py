@@ -22,6 +22,8 @@ import seaborn as sns
 
 import mmtrack.utils.vis as vis
 
+import cv2
+
 @MODELS.register_module()
 class MSTracker(BaseSingleObjectTracker):
 

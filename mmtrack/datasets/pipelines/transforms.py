@@ -157,75 +157,75 @@ class SeqCropLikeMSTracker(object):
         self.exemplar_size = exemplar_size
         self.crop_size = crop_size
 
-    def crop_like_SiamFC(self,
-                         image,
-                         bbox,
-                         context_amount=0.5,
-                         exemplar_size=127,
-                         crop_size=511):
-        """Crop an image as SiamFC did.
+    # def crop_like_SiamFC(self,
+    #                      image,
+    #                      bbox,
+    #                      context_amount=0.5,
+    #                      exemplar_size=127,
+    #                      crop_size=511):
+    #     """Crop an image as SiamFC did.
 
-        Args:
-            image (ndarray): of shape (H, W, 3).
-            bbox (ndarray): of shape (4, ) in [x1, y1, x2, y2] format.
-            context_amount (float): The context amount around a bounding box.
-                Defaults to 0.5.
-            exemplar_size (int): Exemplar size. Defaults to 127.
-            crop_size (int): Crop size. Defaults to 511.
+    #     Args:
+    #         image (ndarray): of shape (H, W, 3).
+    #         bbox (ndarray): of shape (4, ) in [x1, y1, x2, y2] format.
+    #         context_amount (float): The context amount around a bounding box.
+    #             Defaults to 0.5.
+    #         exemplar_size (int): Exemplar size. Defaults to 127.
+    #         crop_size (int): Crop size. Defaults to 511.
 
-        Returns:
-            ndarray: The cropped image of shape (crop_size, crop_size, 3).
-        """
-        padding = np.mean(image, axis=(0, 1)).tolist()
+    #     Returns:
+    #         ndarray: The cropped image of shape (crop_size, crop_size, 3).
+    #     """
+    #     padding = np.mean(image, axis=(0, 1)).tolist()
 
-        bbox = np.array([
-            0.5 * (bbox[2] + bbox[0]), 0.5 * (bbox[3] + bbox[1]),
-            bbox[2] - bbox[0], bbox[3] - bbox[1]
-        ])
-        z_width = bbox[2] + context_amount * (bbox[2] + bbox[3])
-        z_height = bbox[3] + context_amount * (bbox[2] + bbox[3])
-        z_size = np.sqrt(z_width * z_height)
+    #     bbox = np.array([
+    #         0.5 * (bbox[2] + bbox[0]), 0.5 * (bbox[3] + bbox[1]),
+    #         bbox[2] - bbox[0], bbox[3] - bbox[1]
+    #     ])
+    #     z_width = bbox[2] + context_amount * (bbox[2] + bbox[3])
+    #     z_height = bbox[3] + context_amount * (bbox[2] + bbox[3])
+    #     z_size = np.sqrt(z_width * z_height)
 
-        z_scale = exemplar_size / z_size
-        d_search = (crop_size - exemplar_size) / 2.
-        pad = d_search / z_scale
-        x_size = z_size + 2 * pad
-        x_bbox = np.array([
-            bbox[0] - 0.5 * x_size, bbox[1] - 0.5 * x_size,
-            bbox[0] + 0.5 * x_size, bbox[1] + 0.5 * x_size
-        ])
+    #     z_scale = exemplar_size / z_size
+    #     d_search = (crop_size - exemplar_size) / 2.
+    #     pad = d_search / z_scale
+    #     x_size = z_size + 2 * pad
+    #     x_bbox = np.array([
+    #         bbox[0] - 0.5 * x_size, bbox[1] - 0.5 * x_size,
+    #         bbox[0] + 0.5 * x_size, bbox[1] + 0.5 * x_size
+    #     ])
 
-        x_crop_img = crop_image(image, x_bbox, crop_size, padding)
-        return x_crop_img
+    #     x_crop_img = crop_image(image, x_bbox, crop_size, padding)
+    #     return x_crop_img
 
-    def generate_box(self, image, gt_bbox, context_amount, exemplar_size):
-        """Generate box based on cropped image.
+    # def generate_box(self, image, gt_bbox, context_amount, exemplar_size):
+    #     """Generate box based on cropped image.
 
-        Args:
-            image (ndarray): The cropped image of shape
-                (self.crop_size, self.crop_size, 3).
-            gt_bbox (ndarray): of shape (4, ) in [x1, y1, x2, y2] format.
-            context_amount (float): The context amount around a bounding box.
-            exemplar_size (int): Exemplar size. Defaults to 127.
+    #     Args:
+    #         image (ndarray): The cropped image of shape
+    #             (self.crop_size, self.crop_size, 3).
+    #         gt_bbox (ndarray): of shape (4, ) in [x1, y1, x2, y2] format.
+    #         context_amount (float): The context amount around a bounding box.
+    #         exemplar_size (int): Exemplar size. Defaults to 127.
 
-        Returns:
-            ndarray: Generated box of shape (4, ) in [x1, y1, x2, y2] format.
-        """
-        img_h, img_w = image.shape[:2]
-        w, h = gt_bbox[2] - gt_bbox[0], gt_bbox[3] - gt_bbox[1]
+    #     Returns:
+    #         ndarray: Generated box of shape (4, ) in [x1, y1, x2, y2] format.
+    #     """
+    #     img_h, img_w = image.shape[:2]
+    #     w, h = gt_bbox[2] - gt_bbox[0], gt_bbox[3] - gt_bbox[1]
 
-        z_width = w + context_amount * (w + h)
-        z_height = h + context_amount * (w + h)
-        z_scale = np.sqrt(z_width * z_height)
-        z_scale_factor = exemplar_size / z_scale
-        w = w * z_scale_factor
-        h = h * z_scale_factor
-        cx, cy = img_w // 2, img_h // 2
-        bbox = np.array(
-            [cx - 0.5 * w, cy - 0.5 * h, cx + 0.5 * w, cy + 0.5 * h],
-            dtype=np.float32)
+    #     z_width = w + context_amount * (w + h)
+    #     z_height = h + context_amount * (w + h)
+    #     z_scale = np.sqrt(z_width * z_height)
+    #     z_scale_factor = exemplar_size / z_scale
+    #     w = w * z_scale_factor
+    #     h = h * z_scale_factor
+    #     cx, cy = img_w // 2, img_h // 2
+    #     bbox = np.array(
+    #         [cx - 0.5 * w, cy - 0.5 * h, cx + 0.5 * w, cy + 0.5 * h],
+    #         dtype=np.float32)
 
-        return bbox
+    #     return bbox
 
     def __call__(self, results):
         """Call function.
@@ -560,6 +560,96 @@ class SeqGrayAug(object):
 
 @PIPELINES.register_module()
 class SeqShiftScaleAug(object):
+    """Shift and rescale images and bounding boxes.
+    Args:
+        target_size (list[int]): list of int denoting exemplar size and search
+            size, respectively. Defaults to [127, 255].
+        shift (list[int]): list of int denoting the max shift offset. Defaults
+            to [4, 64].
+        scale (list[float]): list of float denoting the max rescale factor.
+            Defaults to [0.05, 0.18].
+    """
+
+    def __init__(self,
+                 target_size=[127, 255],
+                 shift=[4, 64],
+                 scale=[0.05, 0.18]):
+        self.target_size = target_size
+        self.shift = shift
+        self.scale = scale
+
+    def _shift_scale_aug(self, image, bbox, target_size, shift, scale):
+        """Shift and rescale an image and corresponding bounding box.
+        Args:
+            image (ndarray): of shape (H, W, 3). Typically H and W equal to
+                511.
+            bbox (ndarray): of shape (4, ) in [x1, y1, x2, y2] format.
+            target_size (int): Exemplar size or search size.
+            shift (int): The max shift offset.
+            scale (float): The max rescale factor.
+        Returns:
+            tuple(crop_img, bbox): crop_img is a ndarray of shape
+            (target_size, target_size, 3), bbox is the corresponding ground
+            truth box in [x1, y1, x2, y2] format.
+        """
+        img_h, img_w = image.shape[:2]
+
+        scale_x = (2 * np.random.random() - 1) * scale + 1
+        scale_y = (2 * np.random.random() - 1) * scale + 1
+        scale_x = min(scale_x, float(img_w) / target_size)
+        scale_y = min(scale_y, float(img_h) / target_size)
+        crop_region = np.array([
+            img_w // 2 - 0.5 * scale_x * target_size,
+            img_h // 2 - 0.5 * scale_y * target_size,
+            img_w // 2 + 0.5 * scale_x * target_size,
+            img_h // 2 + 0.5 * scale_y * target_size
+        ])
+
+        shift_x = (2 * np.random.random() - 1) * shift
+        shift_y = (2 * np.random.random() - 1) * shift
+        shift_x = max(-crop_region[0], min(img_w - crop_region[2], shift_x))
+        shift_y = max(-crop_region[1], min(img_h - crop_region[3], shift_y))
+        shift = np.array([shift_x, shift_y, shift_x, shift_y])
+        crop_region += shift
+
+        crop_img = crop_image(image, crop_region, target_size)
+        bbox -= np.array(
+            [crop_region[0], crop_region[1], crop_region[0], crop_region[1]])
+        bbox /= np.array([scale_x, scale_y, scale_x, scale_y],
+                         dtype=np.float32)
+        return crop_img, bbox
+
+    def __call__(self, results):
+        """Call function.
+        For each dict in results, shift and rescale the image and the bounding
+        box in the dict.
+        Args:
+            results (list[dict]): List of dict that from
+                :obj:`mmtrack.CocoVideoDataset`.
+        Returns:
+            list[dict]: List of dict that contains cropped image and
+            corresponding ground truth box.
+        """
+        outs = []
+        for i, _results in enumerate(results):
+            image = _results['img']
+            gt_bbox = _results['gt_bboxes'][0]
+
+            crop_img, crop_bbox = self._shift_scale_aug(
+                image, gt_bbox, self.target_size[i], self.shift[i],
+                self.scale[i])
+            crop_bbox = crop_bbox[None]
+
+            _results['img'] = crop_img
+            if 'img_shape' in _results:
+                _results['img_shape'] = crop_img.shape
+            _results['gt_bboxes'] = crop_bbox
+            outs.append(_results)
+        return outs
+
+
+@PIPELINES.register_module()
+class MSSeqShiftScaleAug(object):
     """Shift and rescale images and bounding boxes.
 
     Args:

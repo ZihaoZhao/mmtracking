@@ -83,7 +83,7 @@ train_pipeline = [
         exemplar_size=exemplar_size,
         crop_size=crop_size),
     dict(
-        type='SeqShiftScaleAug',
+        type='MSSeqShiftScaleAug',
         target_size=[exemplar_size, search_size],
         shift=[4, 20],
         scale=[0.05, 0.18]),
@@ -94,8 +94,8 @@ train_pipeline = [
     dict(type='SeqDefaultFormatBundle', ref_prefix='search')
 ]
 test_pipeline = [
-    dict(type='LoadImageFromFile', to_float32=True),
-    dict(type='LoadAnnotations', with_bbox=True, with_label=False),
+    dict(type='MSLoadImageFromFile', to_float32=True),
+    dict(type='MSLoadAnnotations', with_bbox=True, with_label=False),
     dict(
         type='MultiScaleFlipAug',
         scale_factor=1,
@@ -107,7 +107,7 @@ test_pipeline = [
 ]
 # dataset settings
 data = dict(
-    samples_per_gpu=8,
+    samples_per_gpu=6,
     workers_per_gpu=4,
     persistent_workers=True,
     samples_per_epoch=600000,
